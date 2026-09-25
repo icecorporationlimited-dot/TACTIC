@@ -22,8 +22,7 @@ const API_URL =
 */
 
 const DEVICE_TOKEN =
-  "YOUR_DEVICE_TOKEN";
-
+  "TACTIC-DEV-001-SECRET";
 
 /* =====================================================
    DOM
