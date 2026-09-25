@@ -24,6 +24,7 @@ const API_URL =
 const DEVICE_TOKEN =
   "TACTIC-DEV-001-SECRET";
 
+console.log("TACTIC TOKEN TEST:", DEVICE_TOKEN);
 /* =====================================================
    DOM
 ===================================================== */
