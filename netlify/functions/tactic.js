@@ -71,25 +71,38 @@ export default async function handler(req) {
   }
 
   /* ===================================================
-     AUTH
-  =================================================== */
+   DEVICE AUTHENTICATION
+=================================================== */
 
-  const auth = req.headers.get("Authorization");
-  const expectedToken = process.env.TACTIC_DEVICE_TOKEN;
+const auth = req.headers.get("Authorization");
 
-  if (
-    !auth ||
-    !expectedToken ||
-    auth !== `Bearer ${expectedToken}`
-  ) {
-    return response(
-      {
-        success: false,
-        error: "UNAUTHORIZED"
-      },
-      401
-    );
-  }
+if (!auth || !auth.startsWith("Bearer ")) {
+  return response(
+    {
+      success: false,
+      error: "UNAUTHORIZED"
+    },
+    401
+  );
+}
+
+const deviceToken = auth.slice(7);
+
+const device = await devices.findOne({
+  token: deviceToken
+});
+
+if (!device) {
+  return response(
+    {
+      success: false,
+      error: "INVALID_DEVICE"
+    },
+    401
+  );
+}
+
+const deviceId = device.deviceId;
 
   /* ===================================================
      DATABASE
@@ -119,8 +132,6 @@ export default async function handler(req) {
   /* ===================================================
      DEVICE
   =================================================== */
-
-  const deviceId = "TAC-000001";
 
   let device = await devices.findOne({
     deviceId
