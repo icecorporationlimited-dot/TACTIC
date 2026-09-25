@@ -1,10 +1,6 @@
 import { MongoClient } from "mongodb";
 import crypto from "crypto";
 
-/* =====================================================
-   CONFIG
-===================================================== */
-
 const DOMAINS = [
   "instagram.com",
   "snapchat.com",
@@ -38,21 +34,17 @@ async function getDB() {
    RESPONSE
 ===================================================== */
 
-function response(data, status = 200) {
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization",
-        "Access-Control-Allow-Methods":
-          "GET, POST, OPTIONS"
-      }
-    }
-  );
+function response(statusCode, data) {
+  return {
+    statusCode,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+    },
+    body: JSON.stringify(data)
+  };
 }
 
 /* =====================================================
@@ -67,1100 +59,676 @@ function hashToken(token) {
 }
 
 /* =====================================================
-   GENERATE DEVICE TOKEN
+   NEXTDNS
 ===================================================== */
 
-function generateDeviceToken() {
+async function nextDNSRequest(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "X-Api-Key": process.env.NEXTDNS_API_KEY,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
 
-  const random =
-    crypto.randomBytes(32).toString("hex");
+  const text = await response.text();
 
-  return `TACTIC-${random}`;
+  let data;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `NextDNS error ${response.status}: ${text}`
+    );
+  }
+
+  return data;
 }
 
 /* =====================================================
-   GENERATE DEVICE ID
+   BLOCK DOMAINS
 ===================================================== */
 
-async function generateDeviceId(devices) {
+async function blockAllDomains(policy) {
+  const profileId = process.env.NEXTDNS_PROFILE_ID;
 
-  const lastDevice =
-    await devices
-      .find({})
-      .sort({ deviceId: -1 })
-      .limit(1)
-      .next();
+  if (!profileId) {
+    throw new Error("NEXTDNS_PROFILE_ID is missing");
+  }
 
-  let number = 1;
+  for (const domain of DOMAINS) {
+    if (!policy[domain]) continue;
 
-  if (lastDevice?.deviceId) {
+    const url =
+      `https://api.nextdns.io/profiles/${profileId}/denylist`;
 
-    const match =
-      lastDevice.deviceId.match(
-        /TAC-(\d+)/
+    await nextDNSRequest(url, {
+      method: "POST",
+      body: JSON.stringify({
+        domain,
+        active: true
+      })
+    });
+  }
+}
+
+/* =====================================================
+   RESTORE DOMAINS
+===================================================== */
+
+async function restoreAllDomains(policy) {
+  const profileId = process.env.NEXTDNS_PROFILE_ID;
+
+  if (!profileId) {
+    throw new Error("NEXTDNS_PROFILE_ID is missing");
+  }
+
+  for (const domain of DOMAINS) {
+    if (!policy[domain]) continue;
+
+    const url =
+      `https://api.nextdns.io/profiles/${profileId}/denylist/${domain}`;
+
+    await nextDNSRequest(url, {
+      method: "PATCH",
+      body: JSON.stringify({
+        active: false
+      })
+    });
+  }
+}
+
+/* =====================================================
+   USER SESSION AUTH
+===================================================== */
+
+async function authenticateUser(db, token) {
+  const tokenHash = hashToken(token);
+
+  const authSession = await db.collection("authSessions").findOne({
+    tokenHash
+  });
+
+  if (!authSession) {
+    return null;
+  }
+
+  if (new Date(authSession.expiresAt) <= new Date()) {
+    await db.collection("authSessions").deleteOne({
+      _id: authSession._id
+    });
+
+    return null;
+  }
+
+  return {
+    userId: authSession.userId,
+    type: "user"
+  };
+}
+
+/* =====================================================
+   DEVICE TOKEN AUTH
+===================================================== */
+
+async function authenticateDevice(db, token) {
+  const tokenHash = hashToken(token);
+
+  let device = await db.collection("devices").findOne({
+    tokenHash
+  });
+
+  /* ---------------------------------------------------
+     LEGACY MIGRATION
+  --------------------------------------------------- */
+
+  if (!device) {
+    const legacyDevice = await db.collection("devices").findOne({
+      token
+    });
+
+    if (legacyDevice) {
+      const newHash = hashToken(token);
+
+      await db.collection("devices").updateOne(
+        {
+          _id: legacyDevice._id
+        },
+        {
+          $set: {
+            tokenHash: newHash,
+            updatedAt: new Date()
+          },
+          $unset: {
+            token: ""
+          }
+        }
       );
 
-    if (match) {
-      number =
-        parseInt(match[1], 10) + 1;
+      device = {
+        ...legacyDevice,
+        tokenHash: newHash
+      };
     }
   }
 
-  return `TAC-${String(number).padStart(6, "0")}`;
+  if (!device) {
+    return null;
+  }
+
+  if (device.status === "revoked") {
+    return null;
+  }
+
+  return {
+    deviceId: device.deviceId,
+    userId: device.userId || null,
+    type: "device"
+  };
+}
+
+/* =====================================================
+   FIND USER DEVICE
+===================================================== */
+
+async function getUserDevice(db, userId, deviceId) {
+  if (!deviceId) {
+    return null;
+  }
+
+  return await db.collection("devices").findOne({
+    deviceId,
+    userId
+  });
 }
 
 /* =====================================================
    MAIN HANDLER
 ===================================================== */
 
-export default async function handler(req) {
+export async function handler(event) {
 
-  /* ===================================================
-     CORS
-  =================================================== */
+  /* ---------------------------------------------------
+     OPTIONS
+  --------------------------------------------------- */
 
-  if (req.method === "OPTIONS") {
-
-    return new Response(null, {
-      status: 204,
-
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization",
-        "Access-Control-Allow-Methods":
-          "GET, POST, OPTIONS"
-      }
-    });
+  if (event.httpMethod === "OPTIONS") {
+    return response(204, {});
   }
-
-  /* ===================================================
-     DATABASE
-  =================================================== */
-
-  let db;
 
   try {
 
-    db = await getDB();
+    const db = await getDB();
 
-  } catch (error) {
+    const devices = db.collection("devices");
+    const sessions = db.collection("sessions");
+    const policies = db.collection("policies");
 
-    console.error(
-      "MongoDB connection error:",
-      error
-    );
+    /* =================================================
+       AUTHORIZATION
+    ================================================= */
 
-    return response(
-      {
-        success: false,
-        error: "DATABASE_CONNECTION_FAILED"
-      },
-      500
-    );
-  }
+    const authHeader =
+      event.headers.authorization || "";
 
-  /* ===================================================
-     COLLECTIONS
-  =================================================== */
-
-  const devices =
-    db.collection("devices");
-
-  const sessions =
-    db.collection("sessions");
-
-  const policies =
-    db.collection("policies");
-
-  /* ===================================================
-     DEVICE AUTH
-  =================================================== */
-
-  const auth =
-    req.headers.get("Authorization");
-
-  if (
-    !auth ||
-    !auth.startsWith("Bearer ")
-  ) {
-
-    return response(
-      {
-        success: false,
-        error: "UNAUTHORIZED"
-      },
-      401
-    );
-  }
-
-  const deviceToken =
-    auth.slice(7).trim();
-
-  if (!deviceToken) {
-
-    return response(
-      {
-        success: false,
-        error: "UNAUTHORIZED"
-      },
-      401
-    );
-  }
-
-  /* ===================================================
-     FIND DEVICE
-  =================================================== */
-
-  const tokenHash =
-    hashToken(deviceToken);
-
-  let device =
-    await devices.findOne({
-      tokenHash
-    });
-
-  /* ===================================================
-     LEGACY TOKEN MIGRATION
-     
-     Existing device:
-     TAC-000001
-     token: TACTIC-DEV-001-SECRET
-
-     If found, automatically migrate
-     plaintext token → hashed token.
-  =================================================== */
-
-  if (!device) {
-
-    const legacyDevice =
-      await devices.findOne({
-        token: deviceToken
-      });
-
-    if (legacyDevice) {
-
-      await devices.updateOne(
-
-        {
-          _id:
-            legacyDevice._id
-        },
-
-        {
-          $set: {
-            tokenHash,
-            updatedAt:
-              new Date()
-          },
-
-          $unset: {
-            token: ""
-          }
-        }
-
-      );
-
-      device =
-        await devices.findOne({
-          _id:
-            legacyDevice._id
-        });
-    }
-  }
-
-  /* ===================================================
-     INVALID DEVICE
-  =================================================== */
-
-  if (!device) {
-
-    return response(
-      {
-        success: false,
-        error: "INVALID_DEVICE"
-      },
-      401
-    );
-  }
-
-  /* ===================================================
-     DEVICE STATUS
-  =================================================== */
-
-  if (device.status === "revoked") {
-
-    return response(
-      {
-        success: false,
-        error: "DEVICE_REVOKED"
-      },
-      403
-    );
-  }
-
-  const deviceId =
-    device.deviceId;
-
-  /* ===================================================
-     POLICY
-  =================================================== */
-
-  let policy =
-    await policies.findOne({
-      deviceId
-    });
-
-  if (!policy) {
-
-    policy = {
-
-      deviceId,
-
-      instagram: true,
-      snapchat: true,
-      youtube: true,
-
-      createdAt:
-        new Date(),
-
-      updatedAt:
-        new Date()
-    };
-
-    await policies.insertOne(
-      policy
-    );
-  }
-
-  /* ===================================================
-     GET STATUS
-  =================================================== */
-
-  if (req.method === "GET") {
-
-    const activeSession =
-      await sessions.findOne({
-
-        deviceId,
-
-        status: "active"
-
-      });
-
-    /* -----------------------------------------------
-       AUTO EXPIRY
-    ----------------------------------------------- */
-
-    if (
-      activeSession &&
-      new Date(activeSession.expiresAt)
-        .getTime() <= Date.now()
-    ) {
-
-      return response({
-
-        success: true,
-
-        device: {
-
-          deviceId,
-
-          status:
-            device.status || "active"
-
-        },
-
-        session: {
-
-          active: true,
-
-          expired: true,
-
-          startedAt:
-            activeSession.startedAt,
-
-          expiresAt:
-            activeSession.expiresAt
-
-        },
-
-        policy: {
-
-          instagram:
-            policy.instagram,
-
-          snapchat:
-            policy.snapchat,
-
-          youtube:
-            policy.youtube
-
-        }
-
+    if (!authHeader.startsWith("Bearer ")) {
+      return response(401, {
+        error: "Authorization required"
       });
     }
 
-    return response({
+    const token =
+      authHeader.slice(7).trim();
 
-      success: true,
-
-      device: {
-
-        deviceId,
-
-        status:
-          device.status || "active"
-
-      },
-
-      session:
-
-        activeSession
-
-          ? {
-
-              active: true,
-
-              expired: false,
-
-              startedAt:
-                activeSession.startedAt,
-
-              expiresAt:
-                activeSession.expiresAt
-
-            }
-
-          : {
-
-              active: false,
-
-              expired: false,
-
-              startedAt: null,
-
-              expiresAt: null
-
-            },
-
-      policy: {
-
-        instagram:
-          policy.instagram,
-
-        snapchat:
-          policy.snapchat,
-
-        youtube:
-          policy.youtube
-
-      }
-
-    });
-  }
-
-  /* ===================================================
-     POST
-  =================================================== */
-
-  if (req.method === "POST") {
-
-    let body;
-
-    try {
-
-      body =
-        await req.json();
-
-    } catch {
-
-      return response(
-        {
-          success: false,
-          error: "INVALID_JSON"
-        },
-        400
-      );
+    if (!token) {
+      return response(401, {
+        error: "Invalid token"
+      });
     }
 
     /* =================================================
-       START SESSION
+       TRY USER SESSION FIRST
     ================================================= */
 
-    if (body.action === "start") {
+    let auth = await authenticateUser(
+      db,
+      token
+    );
+
+    /* =================================================
+       IF NOT USER → TRY DEVICE TOKEN
+    ================================================= */
+
+    if (!auth) {
+      auth = await authenticateDevice(
+        db,
+        token
+      );
+    }
+
+    if (!auth) {
+      return response(401, {
+        error: "Invalid or expired authentication"
+      });
+    }
+
+    /* =================================================
+       GET REQUEST
+    ================================================= */
+
+    if (event.httpMethod === "GET") {
 
       /* -----------------------------------------------
-         CHECK ACTIVE SESSION
+         DEVICE AUTH
       ----------------------------------------------- */
 
-      const existingSession =
-        await sessions.findOne({
+      if (auth.type === "device") {
 
-          deviceId,
-
-          status: "active"
-
+        const device = await devices.findOne({
+          deviceId: auth.deviceId
         });
 
-      if (existingSession) {
+        if (!device) {
+          return response(404, {
+            error: "Device not found"
+          });
+        }
 
-        const expiry =
-          new Date(
-            existingSession.expiresAt
-          ).getTime();
+        let policy = await policies.findOne({
+          deviceId: auth.deviceId
+        });
 
-        /* ---------------------------------------------
-           EXPIRED SESSION
-        --------------------------------------------- */
+        if (!policy) {
 
-        if (
-          expiry <= Date.now()
-        ) {
+          policy = {
+            deviceId: auth.deviceId,
+            instagram: true,
+            snapchat: true,
+            youtube: true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
 
-          await sessions.updateOne(
+          await policies.insertOne(policy);
+        }
 
-            {
-              _id:
-                existingSession._id
-            },
+        const activeSession =
+          await sessions.findOne({
+            deviceId: auth.deviceId,
+            status: "active"
+          });
 
-            {
-              $set: {
-
-                status:
-                  "expired",
-
-                expiredAt:
+        return response(200, {
+          success: true,
+          authType: "device",
+          deviceId: auth.deviceId,
+          status: device.status,
+          session: activeSession
+            ? {
+                startedAt: activeSession.startedAt,
+                expiresAt: activeSession.expiresAt,
+                expired:
+                  new Date(activeSession.expiresAt) <=
                   new Date()
-
               }
+            : null,
+          policy: {
+            instagram: policy.instagram,
+            snapchat: policy.snapchat,
+            youtube: policy.youtube
+          }
+        });
+      }
 
-            }
+      /* -----------------------------------------------
+         USER AUTH
+      ----------------------------------------------- */
 
+      if (auth.type === "user") {
+
+        const params = event.queryStringParameters || {};
+
+        const deviceId = params.deviceId;
+
+        if (!deviceId) {
+          return response(400, {
+            error: "deviceId is required"
+          });
+        }
+
+        const device =
+          await getUserDevice(
+            db,
+            auth.userId,
+            deviceId
           );
 
-        } else {
+        if (!device) {
+          return response(403, {
+            error: "You do not have access to this device"
+          });
+        }
 
-          return response(
-            {
-              success: false,
+        let policy = await policies.findOne({
+          deviceId
+        });
 
-              error:
-                "SESSION_ALREADY_ACTIVE",
+        if (!policy) {
 
+          policy = {
+            deviceId,
+            instagram: true,
+            snapchat: true,
+            youtube: true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          await policies.insertOne(policy);
+        }
+
+        const activeSession =
+          await sessions.findOne({
+            deviceId,
+            status: "active"
+          });
+
+        return response(200, {
+          success: true,
+          authType: "user",
+          userId: auth.userId,
+          deviceId,
+          status: device.status,
+          session: activeSession
+            ? {
+                startedAt: activeSession.startedAt,
+                expiresAt: activeSession.expiresAt,
+                expired:
+                  new Date(activeSession.expiresAt) <=
+                  new Date()
+              }
+            : null,
+          policy: {
+            instagram: policy.instagram,
+            snapchat: policy.snapchat,
+            youtube: policy.youtube
+          }
+        });
+      }
+    }
+
+    /* =================================================
+       POST
+    ================================================= */
+
+    if (event.httpMethod === "POST") {
+
+      const body =
+        JSON.parse(event.body || "{}");
+
+      const action = body.action;
+
+      /* ===============================================
+         DEVICE ID
+      =============================================== */
+
+      let deviceId = null;
+
+      /* -----------------------------------------------
+         ESP32
+      ----------------------------------------------- */
+
+      if (auth.type === "device") {
+        deviceId = auth.deviceId;
+      }
+
+      /* -----------------------------------------------
+         WEB USER
+      ----------------------------------------------- */
+
+      if (auth.type === "user") {
+
+        if (!body.deviceId) {
+          return response(400, {
+            error: "deviceId is required"
+          });
+        }
+
+        const device =
+          await getUserDevice(
+            db,
+            auth.userId,
+            body.deviceId
+          );
+
+        if (!device) {
+          return response(403, {
+            error: "You do not have access to this device"
+          });
+        }
+
+        deviceId = body.deviceId;
+      }
+
+      /* ===============================================
+         DEVICE CHECK
+      =============================================== */
+
+      const device = await devices.findOne({
+        deviceId
+      });
+
+      if (!device) {
+        return response(404, {
+          error: "Device not found"
+        });
+      }
+
+      /* ===============================================
+         POLICY
+      =============================================== */
+
+      let policy = await policies.findOne({
+        deviceId
+      });
+
+      if (!policy) {
+
+        policy = {
+          deviceId,
+          instagram: true,
+          snapchat: true,
+          youtube: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        await policies.insertOne(policy);
+      }
+
+      /* =================================================
+         START FOCUS
+      ================================================= */
+
+      if (action === "start") {
+
+        const existingSession =
+          await sessions.findOne({
+            deviceId,
+            status: "active"
+          });
+
+        if (existingSession) {
+
+          const expired =
+            new Date(existingSession.expiresAt) <=
+            new Date();
+
+          if (expired) {
+
+            await sessions.updateOne(
+              {
+                _id: existingSession._id
+              },
+              {
+                $set: {
+                  status: "expired",
+                  updatedAt: new Date()
+                }
+              }
+            );
+
+          } else {
+
+            return response(409, {
+              error: "Focus session already active",
               expiresAt:
                 existingSession.expiresAt
-            },
-            409
-          );
+            });
+          }
         }
-      }
 
-      /* -----------------------------------------------
-         BLOCK DNS
-      ----------------------------------------------- */
+        /* -----------------------------------------------
+           BLOCK
+        ----------------------------------------------- */
 
-      const result =
-        await blockAllDomains(
-          policy
-        );
+        await blockAllDomains(policy);
 
-      if (!result.success) {
+        const startedAt = new Date();
 
-        return response(
-          {
-            success: false,
-
-            error:
-              "DNS_BLOCK_FAILED",
-
-            details:
-              result
-
-          },
-          500
-        );
-      }
-
-      /* -----------------------------------------------
-         SESSION TIMES
-      ----------------------------------------------- */
-
-      const startedAt =
-        new Date();
-
-      const expiresAt =
-        new Date(
+        const expiresAt = new Date(
           startedAt.getTime() +
           FOCUS_DURATION
         );
 
-      /* -----------------------------------------------
-         CREATE SESSION
-      ----------------------------------------------- */
-
-      await sessions.insertOne({
-
-        deviceId,
-
-        status:
-          "active",
-
-        startedAt,
-
-        expiresAt,
-
-        createdAt:
-          new Date()
-
-      });
-
-      /* -----------------------------------------------
-         DEVICE → FOCUS
-      ----------------------------------------------- */
-
-      await devices.updateOne(
-
-        {
-          deviceId
-        },
-
-        {
-          $set: {
-
-            status:
-              "focus",
-
-            updatedAt:
-              new Date()
-
-          }
-
-        }
-
-      );
-
-      return response({
-
-        success: true,
-
-        message:
-          "TACTIC SESSION STARTED",
-
-        deviceId,
-
-        blockedDomains:
-          result.results
-            .filter(
-              item => item.success
-            )
-            .map(
-              item => item.domain
-            ),
-
-        startedAt,
-
-        expiresAt
-
-      });
-    }
-
-    /* =================================================
-       COMPLETE SESSION
-    ================================================= */
-
-    if (
-      body.action === "complete"
-    ) {
-
-      const activeSession =
-        await sessions.findOne({
-
+        const newSession = {
           deviceId,
+          startedAt,
+          expiresAt,
+          status: "active",
+          createdAt: new Date()
+        };
 
-          status:
-            "active"
+        await sessions.insertOne(
+          newSession
+        );
 
+        await devices.updateOne(
+          {
+            deviceId
+          },
+          {
+            $set: {
+              status: "focus",
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return response(200, {
+          success: true,
+          action: "start",
+          deviceId,
+          startedAt,
+          expiresAt,
+          duration: FOCUS_DURATION
         });
-
-      if (!activeSession) {
-
-        return response(
-          {
-            success: false,
-
-            error:
-              "NO_ACTIVE_SESSION"
-          },
-          400
-        );
       }
 
-      /* -----------------------------------------------
-         EXPIRY CHECK
-      ----------------------------------------------- */
+      /* =================================================
+         COMPLETE
+      ================================================= */
 
-      const now =
-        Date.now();
+      if (action === "complete") {
 
-      const expiry =
-        new Date(
-          activeSession.expiresAt
-        ).getTime();
+        const activeSession =
+          await sessions.findOne({
+            deviceId,
+            status: "active"
+          });
 
-      if (now < expiry) {
-
-        return response(
-          {
-            success: false,
-
-            error:
-              "SESSION_NOT_FINISHED",
-
-            remaining:
-              expiry - now
-
-          },
-          403
-        );
-      }
-
-      /* -----------------------------------------------
-         RESTORE DNS
-      ----------------------------------------------- */
-
-      const result =
-        await restoreAllDomains(
-          policy
-        );
-
-      if (!result.success) {
-
-        return response(
-          {
-            success: false,
-
-            error:
-              "DNS_RESTORE_FAILED",
-
-            details:
-              result
-
-          },
-          500
-        );
-      }
-
-      /* -----------------------------------------------
-         COMPLETE SESSION
-      ----------------------------------------------- */
-
-      await sessions.updateOne(
-
-        {
-          _id:
-            activeSession._id
-        },
-
-        {
-          $set: {
-
-            status:
-              "completed",
-
-            completedAt:
-              new Date()
-
-          }
-
+        if (!activeSession) {
+          return response(404, {
+            error: "No active focus session"
+          });
         }
 
-      );
+        const now = new Date();
 
-      /* -----------------------------------------------
-         DEVICE READY
-      ----------------------------------------------- */
+        if (
+          now < new Date(activeSession.expiresAt)
+        ) {
 
-      await devices.updateOne(
-
-        {
-          deviceId
-        },
-
-        {
-          $set: {
-
-            status:
-              "active",
-
-            updatedAt:
-              new Date()
-
-          }
-
+          return response(403, {
+            error: "Focus session has not finished yet",
+            expiresAt:
+              activeSession.expiresAt
+          });
         }
 
-      );
+        /* -----------------------------------------------
+           RESTORE
+        ----------------------------------------------- */
 
-      return response({
+        await restoreAllDomains(policy);
 
-        success: true,
+        await sessions.updateOne(
+          {
+            _id: activeSession._id
+          },
+          {
+            $set: {
+              status: "completed",
+              completedAt: now,
+              updatedAt: now
+            }
+          }
+        );
 
-        message:
-          "TACTIC SESSION COMPLETED",
+        await devices.updateOne(
+          {
+            deviceId
+          },
+          {
+            $set: {
+              status: "active",
+              updatedAt: now
+            }
+          }
+        );
 
-        restoredDomains:
-          result.results
-            .filter(
-              item => item.success
-            )
-            .map(
-              item => item.domain
-            )
+        return response(200, {
+          success: true,
+          action: "complete",
+          deviceId,
+          completedAt: now
+        });
+      }
 
+      return response(400, {
+        error: "Unknown action"
       });
     }
 
-    /* =================================================
-       UNKNOWN ACTION
-    ================================================= */
+    return response(405, {
+      error: "Method not allowed"
+    });
 
-    return response(
-      {
-        success: false,
+  } catch (error) {
 
-        error:
-          "UNKNOWN_ACTION"
-      },
-      400
-    );
-  }
-
-  /* ===================================================
-     METHOD NOT ALLOWED
-  =================================================== */
-
-  return response(
-    {
-      success: false,
-
-      error:
-        "METHOD_NOT_ALLOWED"
-    },
-    405
-  );
-}
-
-
-/* =====================================================
-   NEXTDNS — BLOCK
-===================================================== */
-
-async function blockAllDomains(
-  policy
-) {
-
-  const profile =
-    process.env.NEXTDNS_PROFILE_ID;
-
-  const apiKey =
-    process.env.NEXTDNS_API_KEY;
-
-  if (!profile || !apiKey) {
-
-    return {
-
-      success: false,
-
-      error:
-        "NEXTDNS_CONFIG_MISSING"
-
-    };
-  }
-
-  const domainsToBlock =
-    DOMAINS.filter(
-      domain => {
-
-        if (
-          domain ===
-          "instagram.com"
-        ) {
-          return policy.instagram;
-        }
-
-        if (
-          domain ===
-          "snapchat.com"
-        ) {
-          return policy.snapchat;
-        }
-
-        if (
-          domain ===
-          "youtube.com"
-        ) {
-          return policy.youtube;
-        }
-
-        return false;
-
-      }
+    console.error(
+      "TACTIC error:",
+      error
     );
 
-  const results = [];
-
-  for (
-    const domain of
-    domainsToBlock
-  ) {
-
-    try {
-
-      const url =
-        `https://api.nextdns.io/profiles/${profile}/denylist`;
-
-      const res =
-        await fetch(
-          url,
-          {
-
-            method:
-              "POST",
-
-            headers: {
-
-              "Content-Type":
-                "application/json",
-
-              "X-Api-Key":
-                apiKey
-
-            },
-
-            body:
-              JSON.stringify({
-
-                id:
-                  domain,
-
-                active:
-                  true
-
-              })
-
-          }
-        );
-
-      results.push({
-
-        domain,
-
-        status:
-          res.status,
-
-        success:
-          res.ok
-
-      });
-
-    } catch (error) {
-
-      results.push({
-
-        domain,
-
-        success:
-          false,
-
-        error:
-          error.message
-
-      });
-
-    }
-
+    return response(500, {
+      error: "Internal server error"
+    });
   }
-
-  return {
-
-    success:
-      results.every(
-        item =>
-          item.success
-      ),
-
-    results
-
-  };
 }
-
-
-/* =====================================================
-   NEXTDNS — RESTORE
-===================================================== */
-
-async function restoreAllDomains(
-  policy
-) {
-
-  const profile =
-    process.env.NEXTDNS_PROFILE_ID;
-
-  const apiKey =
-    process.env.NEXTDNS_API_KEY;
-
-  if (!profile || !apiKey) {
-
-    return {
-
-      success: false,
-
-      error:
-        "NEXTDNS_CONFIG_MISSING"
-
-    };
-  }
-
-  const domainsToRestore =
-    DOMAINS.filter(
-      domain => {
-
-        if (
-          domain ===
-          "instagram.com"
-        ) {
-          return policy.instagram;
-        }
-
-        if (
-          domain ===
-          "snapchat.com"
-        ) {
-          return policy.snapchat;
-        }
-
-        if (
-          domain ===
-          "youtube.com"
-        ) {
-          return policy.youtube;
-        }
-
-        return false;
-
-      }
-    );
-
-  const results = [];
-
-  for (
-    const domain of
-    domainsToRestore
-  ) {
-
-    try {
-
-      const url =
-        `https://api.nextdns.io/profiles/${profile}/denylist/${domain}`;
-
-      const res =
-        await fetch(
-          url,
-          {
-
-            method:
-              "PATCH",
-
-            headers: {
-
-              "Content-Type":
-                "application/json",
-
-              "X-Api-Key":
-                apiKey
-
-            },
-
-            body:
-              JSON.stringify({
-
-                active:
-                  false
-
-              })
-
-          }
-        );
-
-      results.push({
-
-        domain,
-
-        status:
-          res.status,
-
-        success:
-          res.ok
-
-      });
-
-    } catch (error) {
-
-      results.push({
-
-        domain,
-
-        success:
-          false,
-
-        error:
-          error.message
-
-      });
-
-    }
-
-  }
-
-  return {
-
-    success:
-      results.every(
-        item =>
-          item.success
-      ),
-
-    results
-
-  };
-}
-
-
-/* =====================================================
-   DEVICE REGISTRATION HELPER
-
-   Future admin/register endpoint can use:
-
-   const deviceId =
-     await generateDeviceId(devices);
-
-   const rawToken =
-     generateDeviceToken();
-
-   const tokenHash =
-     hashToken(rawToken);
-
-   await devices.insertOne({
-     deviceId,
-     tokenHash,
-     status: "active",
-     createdAt: new Date(),
-     updatedAt: new Date()
-   });
-
-   IMPORTANT:
-   rawToken should be shown ONLY ONCE
-   during device provisioning.
-===================================================== */
