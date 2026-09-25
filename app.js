@@ -1,287 +1,699 @@
 /* =====================================================
-   TACTIC FRONTEND
+   TACTIC
+   FRONTEND APP
 ===================================================== */
 
+const API_URL = "/.netlify/functions/tactic";
+const AUTH_URL = "/.netlify/functions/auth";
+const DEVICES_URL = "/.netlify/functions/my-devices";
 
 /* =====================================================
-   CONFIG
+   STORAGE
 ===================================================== */
 
-const API_URL =
-  "/.netlify/functions/tactic";
+let sessionToken = localStorage.getItem("tactic_session");
+let currentUser = JSON.parse(
+  localStorage.getItem("tactic_user") || "null"
+);
+
+let selectedDevice = localStorage.getItem("tactic_device");
+
+let timerInterval = null;
+let remainingSeconds = 0;
 
 
-/*
-   PROTOTYPE TOKEN
-
-   Later this should NOT be exposed in frontend JS.
-
-   For now the backend should be tested with the
-   ESP32/device token.
-
-*/
-
-const DEVICE_TOKEN =
-  "TACTIC-DEV-001-SECRET";
-
-console.log("TACTIC TOKEN TEST:", DEVICE_TOKEN);
 /* =====================================================
    DOM
 ===================================================== */
 
-const timerElement =
-  document.getElementById("timer");
+const loginScreen = document.getElementById("loginScreen");
+const appScreen = document.getElementById("appScreen");
 
-const timerStatus =
-  document.getElementById("timerStatus");
+const loginForm = document.getElementById("loginForm");
+const registerForm = document.getElementById("registerForm");
 
-const connectionText =
-  document.getElementById("connectionText");
+const authTitle = document.getElementById("authTitle");
+const switchAuth = document.getElementById("switchAuth");
 
-const deviceState =
-  document.getElementById("deviceState");
+const emailInput = document.getElementById("emailInput");
+const passwordInput = document.getElementById("passwordInput");
 
-const deviceStatus =
-  document.getElementById("deviceStatus");
+const registerEmail = document.getElementById("registerEmail");
+const registerPassword = document.getElementById("registerPassword");
+const registerPasswordConfirm =
+  document.getElementById("registerPasswordConfirm");
 
-const modeText =
-  document.getElementById("modeText");
+const loginMessage = document.getElementById("loginMessage");
 
-const sessionText =
-  document.getElementById("sessionText");
+const deviceSelect = document.getElementById("deviceSelect");
+const refreshDevices = document.getElementById("refreshDevices");
+const deviceListMessage = document.getElementById("deviceListMessage");
 
-const systemLog =
-  document.getElementById("systemLog");
+const logoutButton = document.getElementById("logoutButton");
 
-const deviceDot =
-  document.getElementById("deviceDot");
+const startFocus = document.getElementById("startFocus");
+
+const timer = document.getElementById("timer");
+const timerStatus = document.getElementById("timerStatus");
+
+const deviceName = document.getElementById("deviceName");
+const deviceState = document.getElementById("deviceState");
+
+const deviceStatus = document.getElementById("deviceStatus");
+const modeText = document.getElementById("modeText");
+const sessionText = document.getElementById("sessionText");
+
+const blockedCount = document.getElementById("blockedCount");
+
+const instagramState = document.getElementById("instagramState");
+const snapchatState = document.getElementById("snapchatState");
+const youtubeState = document.getElementById("youtubeState");
+
+const systemLog = document.getElementById("systemLog");
 
 
 /* =====================================================
-   SESSION
+   AUTH MODE
 ===================================================== */
 
-let session = {
+let registerMode = false;
 
-  active: false,
+switchAuth?.addEventListener("click", () => {
 
-  startedAt: null,
+  registerMode = !registerMode;
 
-  expiresAt: null
+  if (registerMode) {
 
-};
+    authTitle.textContent = "CREATE TACTIC ACCOUNT";
+
+    loginForm.style.display = "none";
+    registerForm.style.display = "block";
+
+    switchAuth.textContent = "ALREADY HAVE AN ACCOUNT? LOGIN";
+
+    loginMessage.textContent = "";
+
+  } else {
+
+    authTitle.textContent = "LOGIN TO TACTIC";
+
+    loginForm.style.display = "block";
+    registerForm.style.display = "none";
+
+    switchAuth.textContent = "CREATE A NEW ACCOUNT";
+
+    loginMessage.textContent = "";
+  }
+
+});
 
 
 /* =====================================================
-   API REQUEST
+   API
 ===================================================== */
 
-async function apiRequest(
-  method = "GET",
-  body = null
-) {
+async function apiRequest(url, method = "GET", body = null) {
 
   const options = {
-
     method,
-
-    headers: {
-
-      "Authorization":
-        `Bearer ${DEVICE_TOKEN}`,
-
-      "Content-Type":
-        "application/json"
-
-    }
-
+    headers: {}
   };
 
+  if (sessionToken) {
+    options.headers.Authorization = `Bearer ${sessionToken}`;
+  }
 
   if (body) {
 
-    options.body =
-      JSON.stringify(body);
+    options.headers["Content-Type"] = "application/json";
+
+    options.body = JSON.stringify(body);
   }
 
+  const response = await fetch(url, options);
 
-  const response =
-    await fetch(
-      API_URL,
-      options
-    );
+  let data = {};
 
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
 
-  const data =
-    await response.json();
+  if (response.status === 401) {
 
+    await logout(false);
 
-  if (
-    !response.ok
-  ) {
+    throw new Error("SESSION_EXPIRED");
+  }
+
+  if (!response.ok) {
 
     throw new Error(
+      data.message ||
       data.error ||
-      "API request failed"
+      "REQUEST_FAILED"
     );
   }
-
 
   return data;
 }
 
 
 /* =====================================================
-   LOAD STATUS
+   LOGIN
 ===================================================== */
 
-async function loadStatus() {
+loginForm?.addEventListener("submit", async (event) => {
+
+  event.preventDefault();
+
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  loginMessage.textContent = "AUTHENTICATING...";
 
   try {
 
-    const data =
-      await apiRequest(
-        "GET"
+    const data = await fetch(AUTH_URL, {
+
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        action: "login",
+        email,
+        password
+      })
+
+    });
+
+    const result = await data.json();
+
+    if (!data.ok || !result.success) {
+
+      throw new Error(
+        result.message ||
+        result.error ||
+        "LOGIN_FAILED"
       );
-
-
-    connectionText.textContent =
-      "SYSTEM ONLINE";
-
-
-    deviceStatus.textContent =
-      "CONNECTED";
-
-
-    deviceDot.style.background =
-      "var(--green)";
-
-
-    if (
-      data.session
-    ) {
-
-      session.active =
-        data.session.active;
-
-      session.startedAt =
-        data.session.startedAt;
-
-      session.expiresAt =
-        data.session.expiresAt;
     }
 
+    sessionToken = result.token;
+    currentUser = result.user;
 
-    updateUI();
-
-
-    addLog(
-      "BACKEND CONNECTED"
+    localStorage.setItem(
+      "tactic_session",
+      sessionToken
     );
+
+    localStorage.setItem(
+      "tactic_user",
+      JSON.stringify(currentUser)
+    );
+
+    loginMessage.textContent = "LOGIN SUCCESSFUL";
+
+    showApp();
+
+    await loadDevices();
+
+  } catch (error) {
+
+    loginMessage.textContent =
+      error.message === "LOGIN_FAILED"
+        ? "INVALID EMAIL OR PASSWORD"
+        : error.message;
 
   }
 
-  catch (
-    error
-  ) {
-
-    connectionText.textContent =
-      "SYSTEM OFFLINE";
-
-
-    deviceStatus.textContent =
-      "OFFLINE";
-
-
-    deviceDot.style.background =
-      "var(--danger)";
-
-
-    addLog(
-      "BACKEND CONNECTION FAILED"
-    );
-
-
-    console.error(
-      error
-    );
-  }
-}
+});
 
 
 /* =====================================================
-   START SESSION
+   REGISTER
 ===================================================== */
 
-async function startSession() {
+registerForm?.addEventListener("submit", async (event) => {
 
-  if (
-    session.active
-  ) {
+  event.preventDefault();
+
+  const email = registerEmail.value.trim();
+  const password = registerPassword.value;
+  const confirmPassword = registerPasswordConfirm.value;
+
+  if (password !== confirmPassword) {
+
+    loginMessage.textContent =
+      "PASSWORDS DO NOT MATCH";
 
     return;
   }
 
+  if (password.length < 8) {
 
-  timerStatus.textContent =
-    "CONTACTING TACTIC";
+    loginMessage.textContent =
+      "PASSWORD MUST BE AT LEAST 8 CHARACTERS";
 
+    return;
+  }
 
-  addLog(
-    "START REQUEST SENT"
-  );
-
+  loginMessage.textContent =
+    "CREATING ACCOUNT...";
 
   try {
 
-    const data =
-      await apiRequest(
+    const response = await fetch(AUTH_URL, {
+
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+
+        action: "register",
+
+        email,
+
+        password
+
+      })
+
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+
+      throw new Error(
+        result.message ||
+        result.error ||
+        "REGISTRATION_FAILED"
+      );
+    }
+
+    loginMessage.textContent =
+      "ACCOUNT CREATED. YOU CAN LOGIN NOW.";
+
+    /*
+      Switch back to login
+    */
+
+    registerMode = false;
+
+    authTitle.textContent =
+      "LOGIN TO TACTIC";
+
+    loginForm.style.display = "block";
+    registerForm.style.display = "none";
+
+    switchAuth.textContent =
+      "CREATE A NEW ACCOUNT";
+
+    emailInput.value = email;
+    passwordInput.value = "";
+
+    registerEmail.value = "";
+    registerPassword.value = "";
+    registerPasswordConfirm.value = "";
+
+  } catch (error) {
+
+    loginMessage.textContent =
+      error.message || "REGISTRATION_FAILED";
+
+  }
+
+});
+
+
+/* =====================================================
+   SHOW APP
+===================================================== */
+
+function showApp() {
+
+  loginScreen.style.display = "none";
+  appScreen.style.display = "block";
+
+}
+
+
+/* =====================================================
+   LOAD DEVICES
+===================================================== */
+
+async function loadDevices() {
+
+  if (!sessionToken) return;
+
+  deviceListMessage.textContent =
+    "LOADING DEVICES...";
+
+  try {
+
+    const data = await apiRequest(
+      DEVICES_URL,
+      "GET"
+    );
+
+    const devices = data.devices || [];
+
+    deviceSelect.innerHTML = "";
+
+    if (!devices.length) {
+
+      deviceListMessage.textContent =
+        "NO TACTIC DEVICE LINKED TO THIS ACCOUNT.";
+
+      selectedDevice = null;
+
+      localStorage.removeItem("tactic_device");
+
+      return;
+    }
+
+    deviceListMessage.textContent =
+      `${devices.length} DEVICE(S) AVAILABLE`;
+
+    devices.forEach(device => {
+
+      const option =
+        document.createElement("option");
+
+      option.value = device.deviceId;
+
+      option.textContent =
+        `${device.deviceId} — ${device.status.toUpperCase()}`;
+
+      deviceSelect.appendChild(option);
+
+    });
+
+    /*
+      Restore previously selected device
+    */
+
+    const exists = devices.some(
+      device =>
+        device.deviceId === selectedDevice
+    );
+
+    if (!exists) {
+
+      selectedDevice =
+        devices[0].deviceId;
+
+    }
+
+    deviceSelect.value =
+      selectedDevice;
+
+    localStorage.setItem(
+      "tactic_device",
+      selectedDevice
+    );
+
+    await loadDeviceStatus();
+
+  } catch (error) {
+
+    deviceListMessage.textContent =
+      error.message;
+
+  }
+
+}
+
+
+/* =====================================================
+   DEVICE CHANGE
+===================================================== */
+
+deviceSelect?.addEventListener(
+  "change",
+  async () => {
+
+    selectedDevice =
+      deviceSelect.value;
+
+    localStorage.setItem(
+      "tactic_device",
+      selectedDevice
+    );
+
+    await loadDeviceStatus();
+
+  }
+);
+
+
+/* =====================================================
+   REFRESH DEVICES
+===================================================== */
+
+refreshDevices?.addEventListener(
+  "click",
+  async () => {
+
+    await loadDevices();
+
+  }
+);
+
+
+/* =====================================================
+   DEVICE STATUS
+===================================================== */
+
+async function loadDeviceStatus() {
+
+  if (!selectedDevice) return;
+
+  try {
+
+    const url =
+      `${API_URL}?deviceId=${encodeURIComponent(selectedDevice)}`;
+
+    const data = await apiRequest(
+      url,
+      "GET"
+    );
+
+    updateDeviceUI(data);
+
+  } catch (error) {
+
+    if (error.message !== "SESSION_EXPIRED") {
+
+      addLog(
+        "ERROR",
+        error.message
+      );
+
+    }
+
+  }
+
+}
+
+
+/* =====================================================
+   UPDATE UI
+===================================================== */
+
+function updateDeviceUI(data) {
+
+  const device =
+    data.device || {};
+
+  const session =
+    data.session || {};
+
+  const policy =
+    data.policy || {};
+
+  deviceName.textContent =
+    device.deviceId ||
+    selectedDevice ||
+    "UNKNOWN";
+
+  const status =
+    device.status || "active";
+
+  deviceState.textContent =
+    status.toUpperCase();
+
+  deviceStatus.textContent =
+    status.toUpperCase();
+
+  modeText.textContent =
+    status === "focus"
+      ? "FOCUS"
+      : "STANDBY";
+
+  if (session.active) {
+
+    const expiresAt =
+      new Date(session.expiresAt);
+
+    const now =
+      Date.now();
+
+    remainingSeconds =
+      Math.max(
+        0,
+        Math.floor(
+          (expiresAt.getTime() - now) / 1000
+        )
+      );
+
+    startTimer();
+
+    sessionText.textContent =
+      "ACTIVE";
+
+    timerStatus.textContent =
+      "FOCUS SESSION ACTIVE";
+
+    startFocus.disabled = true;
+
+  } else {
+
+    stopTimer();
+
+    sessionText.textContent =
+      session.expired
+        ? "EXPIRED"
+        : "NONE";
+
+    timerStatus.textContent =
+      session.expired
+        ? "SESSION COMPLETED"
+        : "READY";
+
+    startFocus.disabled = false;
+
+  }
+
+  updatePolicy(policy);
+
+}
+
+
+/* =====================================================
+   POLICY
+===================================================== */
+
+function updatePolicy(policy) {
+
+  const services = [
+    {
+      name: "instagram.com",
+      element: instagramState
+    },
+    {
+      name: "snapchat.com",
+      element: snapchatState
+    },
+    {
+      name: "youtube.com",
+      element: youtubeState
+    }
+  ];
+
+  let count = 0;
+
+  services.forEach(service => {
+
+    const blocked =
+      policy[service.name] === true;
+
+    if (blocked) count++;
+
+    if (service.element) {
+
+      service.element.textContent =
+        blocked
+          ? "BLOCKED"
+          : "AVAILABLE";
+
+    }
+
+  });
+
+  if (blockedCount) {
+
+    blockedCount.textContent =
+      count;
+
+  }
+
+}
+
+
+/* =====================================================
+   START FOCUS
+===================================================== */
+
+startFocus?.addEventListener(
+  "click",
+  async () => {
+
+    if (!selectedDevice) {
+
+      addLog(
+        "ERROR",
+        "NO DEVICE SELECTED"
+      );
+
+      return;
+    }
+
+    startFocus.disabled = true;
+
+    timerStatus.textContent =
+      "STARTING FOCUS...";
+
+    try {
+
+      const data = await apiRequest(
+        API_URL,
         "POST",
         {
-          action: "start"
+          action: "start",
+          deviceId: selectedDevice
         }
       );
 
+      addLog(
+        "FOCUS",
+        "FOCUS SESSION STARTED"
+      );
 
-    session.active =
-      true;
+      updateDeviceUI(data);
 
+    } catch (error) {
 
-    session.startedAt =
-      data.startedAt;
+      startFocus.disabled = false;
 
+      timerStatus.textContent =
+        "READY";
 
-    session.expiresAt =
-      data.expiresAt;
+      addLog(
+        "ERROR",
+        error.message
+      );
 
-
-    addLog(
-      "FOCUS SESSION STARTED"
-    );
-
-
-    updateUI();
+    }
 
   }
-
-  catch (
-    error
-  ) {
-
-    timerStatus.textContent =
-      "START FAILED";
-
-
-    addLog(
-      "SESSION START FAILED"
-    );
-
-
-    console.error(
-      error
-    );
-  }
-}
+);
 
 
 /* =====================================================
@@ -290,54 +702,35 @@ async function startSession() {
 
 async function completeSession() {
 
+  if (!selectedDevice) return;
+
   try {
 
-    const data =
-      await apiRequest(
-        "POST",
-        {
-          action: "complete"
-        }
-      );
+    const data = await apiRequest(
+      API_URL,
+      "POST",
+      {
+        action: "complete",
+        deviceId: selectedDevice
+      }
+    );
 
-
-    if (
-      data.success
-    ) {
-
-      session.active =
-        false;
-
-      session.startedAt =
-        null;
-
-      session.expiresAt =
-        null;
-
-
-      addLog(
-        "SESSION COMPLETED"
-      );
-
-
-      updateUI();
-    }
-
-  }
-
-  catch (
-    error
-  ) {
+    updateDeviceUI(data);
 
     addLog(
-      "DNS RESTORE FAILED"
+      "FOCUS",
+      "FOCUS SESSION COMPLETED"
     );
 
+  } catch (error) {
 
-    console.error(
-      error
+    addLog(
+      "ERROR",
+      error.message
     );
+
   }
+
 }
 
 
@@ -345,130 +738,153 @@ async function completeSession() {
    TIMER
 ===================================================== */
 
-function updateTimer() {
+function startTimer() {
 
-  if (
-    !session.active ||
-    !session.expiresAt
-  ) {
+  if (timerInterval) return;
 
-    timerElement.textContent =
-      "45:00";
+  updateTimerDisplay();
 
-    timerStatus.textContent =
-      "READY TO START";
+  timerInterval =
+    setInterval(async () => {
 
-    return;
+      remainingSeconds--;
+
+      if (remainingSeconds <= 0) {
+
+        remainingSeconds = 0;
+
+        updateTimerDisplay();
+
+        stopTimer();
+
+        timerStatus.textContent =
+          "COMPLETING SESSION...";
+
+        await completeSession();
+
+        return;
+      }
+
+      updateTimerDisplay();
+
+    }, 1000);
+
+}
+
+
+function stopTimer() {
+
+  if (timerInterval) {
+
+    clearInterval(timerInterval);
+
+    timerInterval = null;
+
   }
 
+  remainingSeconds = 0;
 
-  const now =
-    Date.now();
+  updateTimerDisplay();
 
-
-  let remaining =
-    Math.max(
-      0,
-      session.expiresAt - now
-    );
+}
 
 
-  // ----------------------------------------------------
-  // Convert milliseconds
-  // ----------------------------------------------------
-
-  const totalSeconds =
-    Math.floor(
-      remaining / 1000
-    );
-
+function updateTimerDisplay() {
 
   const minutes =
     Math.floor(
-      totalSeconds / 60
+      remainingSeconds / 60
     );
 
-
   const seconds =
-    totalSeconds % 60;
+    remainingSeconds % 60;
 
+  timer.textContent =
+    `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 
-  timerElement.textContent =
-
-    String(minutes)
-      .padStart(2, "0")
-
-    +
-
-    ":"
-
-    +
-
-    String(seconds)
-      .padStart(2, "0");
-
-
-  timerStatus.textContent =
-    "FOCUS MODE ACTIVE";
-
-
-  // ----------------------------------------------------
-  // Finished
-  // ----------------------------------------------------
-
-  if (
-    remaining <= 0
-  ) {
-
-    completeSession();
-  }
 }
 
 
 /* =====================================================
-   UPDATE UI
+   LOGOUT
 ===================================================== */
 
-function updateUI() {
+logoutButton?.addEventListener(
+  "click",
+  async () => {
+
+    await logout(true);
+
+  }
+);
+
+
+async function logout(callBackend = true) {
+
+  const token =
+    sessionToken;
 
   if (
-    session.active
+    callBackend &&
+    token
   ) {
 
-    deviceState.textContent =
-      "FOCUS ACTIVE";
+    try {
 
+      await fetch(
+        AUTH_URL,
+        {
+          method: "POST",
 
-    modeText.textContent =
-      "FOCUS";
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:
+              `Bearer ${token}`
+          },
 
+          body: JSON.stringify({
+            action: "logout"
+          })
+        }
+      );
 
-    sessionText.textContent =
-      "ACTIVE";
-
-
-    timerStatus.textContent =
-      "FOCUS MODE ACTIVE";
+    } catch {}
 
   }
 
-  else {
+  sessionToken = null;
+  currentUser = null;
+  selectedDevice = null;
 
-    deviceState.textContent =
-      "READY";
+  localStorage.removeItem(
+    "tactic_session"
+  );
 
+  localStorage.removeItem(
+    "tactic_user"
+  );
 
-    modeText.textContent =
-      "IDLE";
+  localStorage.removeItem(
+    "tactic_device"
+  );
 
+  stopTimer();
 
-    sessionText.textContent =
-      "NONE";
+  appScreen.style.display = "none";
+  loginScreen.style.display = "block";
 
+  loginForm.style.display = "block";
+  registerForm.style.display = "none";
 
-    timerStatus.textContent =
-      "READY TO START";
-  }
+  authTitle.textContent =
+    "LOGIN TO TACTIC";
+
+  switchAuth.textContent =
+    "CREATE A NEW ACCOUNT";
+
+  loginMessage.textContent =
+    "";
+
 }
 
 
@@ -476,131 +892,97 @@ function updateUI() {
    SYSTEM LOG
 ===================================================== */
 
-function addLog(
-  message
-) {
+function addLog(type, message) {
+
+  if (!systemLog) return;
+
+  const row =
+    document.createElement("div");
+
+  const time =
+    document.createElement("span");
+
+  const text =
+    document.createElement("strong");
 
   const now =
     new Date();
 
-
-  const time =
+  time.textContent =
     now.toLocaleTimeString(
       [],
       {
         hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
+        minute: "2-digit"
       }
     );
 
+  text.textContent =
+    `[${type}] ${message}`;
 
-  const row =
-    document.createElement(
-      "div"
-    );
+  row.appendChild(time);
+  row.appendChild(text);
 
+  systemLog.prepend(row);
 
-  row.innerHTML = `
-
-    <span>
-      ${time}
-    </span>
-
-    <strong>
-      ${message}
-    </strong>
-
-  `;
-
-
-  systemLog.prepend(
-    row
-  );
-
-
-  // Keep only last 8 logs
-
-  while (
-    systemLog.children.length > 8
-  ) {
-
-    systemLog.removeChild(
-      systemLog.lastChild
-    );
-  }
 }
 
 
 /* =====================================================
-   AUTO STATUS POLLING
-===================================================== */
-
-async function pollStatus() {
-
-  try {
-
-    const data =
-      await apiRequest(
-        "GET"
-      );
-
-
-    if (
-      data.session
-    ) {
-
-      session.active =
-        data.session.active;
-
-      session.startedAt =
-        data.session.startedAt;
-
-      session.expiresAt =
-        data.session.expiresAt;
-    }
-
-
-    updateUI();
-
-  }
-
-  catch (
-    error
-  ) {
-
-    console.log(
-      "Status polling failed"
-    );
-  }
-}
-
-
-/* =====================================================
-   INITIALIZATION
+   AUTO LOGIN
 ===================================================== */
 
 async function init() {
 
-  addLog(
-    "TACTIC FRONTEND INITIALIZED"
-  );
+  if (!sessionToken) {
 
+    loginScreen.style.display =
+      "block";
 
-  await loadStatus();
+    appScreen.style.display =
+      "none";
 
+    return;
+  }
 
-  setInterval(
-    updateTimer,
-    1000
-  );
+  loginScreen.style.display =
+    "none";
 
+  appScreen.style.display =
+    "block";
 
-  setInterval(
-    pollStatus,
-    10000
-  );
+  try {
+
+    await loadDevices();
+
+  } catch {
+
+    await logout(false);
+
+  }
+
 }
+
+
+/* =====================================================
+   POLLING
+===================================================== */
+
+setInterval(
+  async () => {
+
+    if (
+      sessionToken &&
+      selectedDevice
+    ) {
+
+      await loadDeviceStatus();
+
+    }
+
+  },
+  10000
+);
 
 
 /* =====================================================

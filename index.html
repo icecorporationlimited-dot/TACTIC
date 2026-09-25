@@ -38,10 +38,95 @@
 
 
   <!-- ==================================================
-       MAIN
+       LOGIN
+  =================================================== -->
+<section id="loginScreen">
+
+  <div class="panel">
+
+    <div class="eyebrow">TACTIC ACCESS</div>
+
+    <h2 id="authTitle">LOGIN TO TACTIC</h2>
+
+    <!-- LOGIN -->
+    <form id="loginForm">
+
+      <input
+        id="emailInput"
+        type="email"
+        placeholder="EMAIL"
+        autocomplete="email"
+        required
+      >
+
+      <input
+        id="passwordInput"
+        type="password"
+        placeholder="PASSWORD"
+        autocomplete="current-password"
+        required
+      >
+
+      <button class="main-button" type="submit">
+        LOGIN
+      </button>
+
+    </form>
+
+    <!-- REGISTER -->
+    <form id="registerForm" style="display:none;">
+
+      <input
+        id="registerEmail"
+        type="email"
+        placeholder="EMAIL"
+        autocomplete="email"
+        required
+      >
+
+      <input
+        id="registerPassword"
+        type="password"
+        placeholder="PASSWORD"
+        autocomplete="new-password"
+        minlength="8"
+        required
+      >
+
+      <input
+        id="registerPasswordConfirm"
+        type="password"
+        placeholder="CONFIRM PASSWORD"
+        autocomplete="new-password"
+        minlength="8"
+        required
+      >
+
+      <button class="main-button" type="submit">
+        CREATE ACCOUNT
+      </button>
+
+    </form>
+
+    <button id="switchAuth" class="auth-switch" type="button">
+      CREATE A NEW ACCOUNT
+    </button>
+
+    <div id="loginMessage" class="login-message"></div>
+
+  </div>
+
+</section>
+
+  <!-- ==================================================
+       APP
   =================================================== -->
 
-  <main class="container">
+  <main
+    id="appScreen"
+    class="container"
+    style="display:none;"
+  >
 
     <!-- HERO -->
 
@@ -65,6 +150,53 @@
 
 
     <!-- =================================================
+         DEVICE SELECTOR
+    ================================================== -->
+
+    <section class="panel">
+
+      <div class="section-header">
+
+        <div>
+
+          <div class="label">
+            YOUR DEVICES
+          </div>
+
+          <h2>
+            SELECT DEVICE
+          </h2>
+
+        </div>
+
+        <button
+          id="refreshDevices"
+          class="small-button"
+          type="button"
+        >
+          REFRESH
+        </button>
+
+      </div>
+
+      <select
+        id="deviceSelect"
+        class="device-select"
+      >
+        <option value="">
+          SELECT DEVICE
+        </option>
+      </select>
+
+      <div
+        id="deviceListMessage"
+        class="login-message"
+      ></div>
+
+    </section>
+
+
+    <!-- =================================================
          DEVICE
     ================================================== -->
 
@@ -73,6 +205,7 @@
       <div class="panel-top">
 
         <div>
+
           <div class="label">
             DEVICE
           </div>
@@ -81,19 +214,22 @@
             class="device-name"
             id="deviceName"
           >
-            TACTIC-001
+            NO DEVICE
           </div>
+
         </div>
 
         <div class="device-state">
+
           <span
             class="state-dot"
             id="deviceDot"
           ></span>
 
           <span id="deviceState">
-            READY
+            OFFLINE
           </span>
+
         </div>
 
       </div>
@@ -103,13 +239,15 @@
 
         <div>
           <span>STATUS</span>
+
           <strong id="deviceStatus">
-            CONNECTED
+            --
           </strong>
         </div>
 
         <div>
           <span>MODE</span>
+
           <strong id="modeText">
             IDLE
           </strong>
@@ -117,6 +255,7 @@
 
         <div>
           <span>SESSION</span>
+
           <strong id="sessionText">
             NONE
           </strong>
@@ -151,8 +290,17 @@
         class="timer-status"
         id="timerStatus"
       >
-        READY TO START
+        SELECT A DEVICE
       </div>
+
+      <button
+        id="startFocus"
+        class="main-button"
+        type="button"
+        disabled
+      >
+        START FOCUS
+      </button>
 
     </section>
 
@@ -166,6 +314,7 @@
       <div class="section-header">
 
         <div>
+
           <div class="label">
             DIGITAL INTERLOCK
           </div>
@@ -173,10 +322,13 @@
           <h2>
             BLOCKED SERVICES
           </h2>
+
         </div>
 
         <div class="blocked-count">
-          <span id="blockedCount">3</span>
+          <span id="blockedCount">
+            0
+          </span>
           ACTIVE
         </div>
 
@@ -196,6 +348,7 @@
             </div>
 
             <div>
+
               <strong>
                 Instagram
               </strong>
@@ -203,12 +356,16 @@
               <small>
                 instagram.com
               </small>
+
             </div>
 
           </div>
 
-          <div class="service-state">
-            BLOCKED
+          <div
+            class="service-state"
+            id="instagramState"
+          >
+            READY
           </div>
 
         </div>
@@ -225,6 +382,7 @@
             </div>
 
             <div>
+
               <strong>
                 Snapchat
               </strong>
@@ -232,12 +390,16 @@
               <small>
                 snapchat.com
               </small>
+
             </div>
 
           </div>
 
-          <div class="service-state">
-            BLOCKED
+          <div
+            class="service-state"
+            id="snapchatState"
+          >
+            READY
           </div>
 
         </div>
@@ -254,6 +416,7 @@
             </div>
 
             <div>
+
               <strong>
                 YouTube
               </strong>
@@ -266,8 +429,11 @@
 
           </div>
 
-          <div class="service-state">
-            BLOCKED
+          <div
+            class="service-state"
+            id="youtubeState"
+          >
+            READY
           </div>
 
         </div>
@@ -319,6 +485,23 @@
 
 
     <!-- =================================================
+         LOGOUT
+    ================================================== -->
+
+    <section class="panel">
+
+      <button
+        id="logoutButton"
+        class="small-button"
+        type="button"
+      >
+        LOGOUT
+      </button>
+
+    </section>
+
+
+    <!-- =================================================
          STATUS LOG
     ================================================== -->
 
@@ -335,6 +518,7 @@
 
         <div>
           <span>--:--:--</span>
+
           <strong>
             TACTIC INITIALIZED
           </strong>
@@ -342,15 +526,15 @@
 
         <div>
           <span>--:--:--</span>
+
           <strong>
-            WAITING FOR HARDWARE
+            WAITING FOR DEVICE
           </strong>
         </div>
 
       </div>
 
     </section>
-
 
   </main>
 
@@ -366,7 +550,7 @@
     </span>
 
     <span>
-      v0.5
+      v0.6
     </span>
 
   </footer>
