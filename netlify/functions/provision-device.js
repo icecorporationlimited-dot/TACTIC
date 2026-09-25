@@ -12,6 +12,23 @@ async function getDB() {
   return mongoClient.db("tactic");
 }
 
+function json(data, status = 200) {
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "POST, OPTIONS"
+      }
+    }
+  );
+}
+
 function generateDeviceToken() {
   return (
     "TACTIC-" +
@@ -36,12 +53,9 @@ function generateActivationCode() {
     let output = "";
 
     for (let i = 0; i < length; i++) {
-
-      output +=
-        chars[
-          crypto.randomInt(0, chars.length)
-        ];
-
+      output += chars[
+        crypto.randomInt(0, chars.length)
+      ];
     }
 
     return output;
@@ -50,31 +64,26 @@ function generateActivationCode() {
   return `TACTIC-${part(4)}-${part(4)}`;
 }
 
-export default async (req) => {
-
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Content-Type": "application/json"
-  };
+export default async function handler(req) {
 
   if (req.method === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers
-    };
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "POST, OPTIONS"
+      }
+    });
   }
 
   if (req.method !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        message: "METHOD_NOT_ALLOWED"
-      })
-    };
+    return json({
+      success: false,
+      message: "METHOD_NOT_ALLOWED"
+    }, 405);
   }
 
   try {
@@ -84,26 +93,35 @@ export default async (req) => {
     ================================================ */
 
     const authHeader =
-      req.headers.authorization ||
-      req.headers.Authorization;
+      req.headers.get("authorization");
+
+    const adminSecret =
+      process.env.TACTIC_ADMIN_SECRET;
+
+    if (!adminSecret) {
+
+      console.error(
+        "TACTIC_ADMIN_SECRET is missing"
+      );
+
+      return json({
+        success: false,
+        message: "SERVER_CONFIGURATION_ERROR"
+      }, 500);
+    }
 
     const expected =
-      `Bearer ${process.env.TACTIC_ADMIN_SECRET}`;
+      `Bearer ${adminSecret}`;
 
     if (
       !authHeader ||
       authHeader !== expected
     ) {
 
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "UNAUTHORIZED"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "UNAUTHORIZED"
+      }, 401);
     }
 
 
@@ -140,7 +158,6 @@ export default async (req) => {
         nextNumber =
           Number(match[1]) + 1;
       }
-
     }
 
     const deviceId =
@@ -148,7 +165,7 @@ export default async (req) => {
 
 
     /* ================================================
-       GENERATE CREDENTIALS
+       CREDENTIALS
     ================================================ */
 
     const deviceToken =
@@ -170,7 +187,6 @@ export default async (req) => {
         });
 
       if (!existing) break;
-
     }
 
 
@@ -198,36 +214,24 @@ export default async (req) => {
 
 
     /* ================================================
-       RETURN ONCE
+       RESPONSE
     ================================================ */
 
-    return {
-      statusCode: 201,
-      headers,
-      body: JSON.stringify({
+    return json({
+      success: true,
 
-        success: true,
+      message: "DEVICE_PROVISIONED",
 
-        message: "DEVICE_PROVISIONED",
+      device: {
+        deviceId,
+        activationCode,
 
-        device: {
-          deviceId,
+        // Only needed for ESP32 setup.
+        // Never give this to customers.
+        deviceToken
+      }
 
-          activationCode,
-
-          /*
-            IMPORTANT:
-            deviceToken is shown only during
-            provisioning and should be stored
-            securely for ESP32 firmware setup.
-          */
-
-          deviceToken
-
-        }
-
-      })
-    };
+    }, 201);
 
   } catch (error) {
 
@@ -236,15 +240,9 @@ export default async (req) => {
       error
     );
 
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        message: "SERVER_ERROR"
-      })
-    };
-
+    return json({
+      success: false,
+      message: "SERVER_ERROR"
+    }, 500);
   }
-
-};
+}
