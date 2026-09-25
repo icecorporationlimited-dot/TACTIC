@@ -1,4 +1,9 @@
 import { MongoClient } from "mongodb";
+import crypto from "crypto";
+
+/* =====================================================
+   CONFIG
+===================================================== */
 
 const DOMAINS = [
   "instagram.com",
@@ -11,7 +16,7 @@ const FOCUS_DURATION = 45 * 60 * 1000;
 let mongoClient;
 
 /* =====================================================
-   MONGODB CONNECTION
+   MONGODB
 ===================================================== */
 
 async function getDB() {
@@ -23,7 +28,6 @@ async function getDB() {
     }
 
     mongoClient = new MongoClient(uri);
-
     await mongoClient.connect();
   }
 
@@ -52,18 +56,74 @@ function response(data, status = 200) {
 }
 
 /* =====================================================
+   TOKEN HASH
+===================================================== */
+
+function hashToken(token) {
+  return crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+}
+
+/* =====================================================
+   GENERATE DEVICE TOKEN
+===================================================== */
+
+function generateDeviceToken() {
+
+  const random =
+    crypto.randomBytes(32).toString("hex");
+
+  return `TACTIC-${random}`;
+}
+
+/* =====================================================
+   GENERATE DEVICE ID
+===================================================== */
+
+async function generateDeviceId(devices) {
+
+  const lastDevice =
+    await devices
+      .find({})
+      .sort({ deviceId: -1 })
+      .limit(1)
+      .next();
+
+  let number = 1;
+
+  if (lastDevice?.deviceId) {
+
+    const match =
+      lastDevice.deviceId.match(
+        /TAC-(\d+)/
+      );
+
+    if (match) {
+      number =
+        parseInt(match[1], 10) + 1;
+    }
+  }
+
+  return `TAC-${String(number).padStart(6, "0")}`;
+}
+
+/* =====================================================
    MAIN HANDLER
 ===================================================== */
 
 export default async function handler(req) {
 
   /* ===================================================
-     OPTIONS / CORS
+     CORS
   =================================================== */
 
   if (req.method === "OPTIONS") {
+
     return new Response(null, {
       status: 204,
+
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers":
@@ -114,7 +174,7 @@ export default async function handler(req) {
     db.collection("policies");
 
   /* ===================================================
-     DEVICE AUTHENTICATION
+     DEVICE AUTH
   =================================================== */
 
   const auth =
@@ -152,10 +212,66 @@ export default async function handler(req) {
      FIND DEVICE
   =================================================== */
 
-  const device =
+  const tokenHash =
+    hashToken(deviceToken);
+
+  let device =
     await devices.findOne({
-      token: deviceToken
+      tokenHash
     });
+
+  /* ===================================================
+     LEGACY TOKEN MIGRATION
+     
+     Existing device:
+     TAC-000001
+     token: TACTIC-DEV-001-SECRET
+
+     If found, automatically migrate
+     plaintext token → hashed token.
+  =================================================== */
+
+  if (!device) {
+
+    const legacyDevice =
+      await devices.findOne({
+        token: deviceToken
+      });
+
+    if (legacyDevice) {
+
+      await devices.updateOne(
+
+        {
+          _id:
+            legacyDevice._id
+        },
+
+        {
+          $set: {
+            tokenHash,
+            updatedAt:
+              new Date()
+          },
+
+          $unset: {
+            token: ""
+          }
+        }
+
+      );
+
+      device =
+        await devices.findOne({
+          _id:
+            legacyDevice._id
+        });
+    }
+  }
+
+  /* ===================================================
+     INVALID DEVICE
+  =================================================== */
 
   if (!device) {
 
@@ -165,6 +281,21 @@ export default async function handler(req) {
         error: "INVALID_DEVICE"
       },
       401
+    );
+  }
+
+  /* ===================================================
+     DEVICE STATUS
+  =================================================== */
+
+  if (device.status === "revoked") {
+
+    return response(
+      {
+        success: false,
+        error: "DEVICE_REVOKED"
+      },
+      403
     );
   }
 
@@ -180,11 +311,6 @@ export default async function handler(req) {
       deviceId
     });
 
-  /*
-     If device has no policy,
-     create default policy.
-  */
-
   if (!policy) {
 
     policy = {
@@ -195,11 +321,16 @@ export default async function handler(req) {
       snapchat: true,
       youtube: true,
 
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt:
+        new Date(),
+
+      updatedAt:
+        new Date()
     };
 
-    await policies.insertOne(policy);
+    await policies.insertOne(
+      policy
+    );
   }
 
   /* ===================================================
@@ -210,9 +341,65 @@ export default async function handler(req) {
 
     const activeSession =
       await sessions.findOne({
+
         deviceId,
+
         status: "active"
+
       });
+
+    /* -----------------------------------------------
+       AUTO EXPIRY
+    ----------------------------------------------- */
+
+    if (
+      activeSession &&
+      new Date(activeSession.expiresAt)
+        .getTime() <= Date.now()
+    ) {
+
+      return response({
+
+        success: true,
+
+        device: {
+
+          deviceId,
+
+          status:
+            device.status || "active"
+
+        },
+
+        session: {
+
+          active: true,
+
+          expired: true,
+
+          startedAt:
+            activeSession.startedAt,
+
+          expiresAt:
+            activeSession.expiresAt
+
+        },
+
+        policy: {
+
+          instagram:
+            policy.instagram,
+
+          snapchat:
+            policy.snapchat,
+
+          youtube:
+            policy.youtube
+
+        }
+
+      });
+    }
 
     return response({
 
@@ -235,6 +422,8 @@ export default async function handler(req) {
 
               active: true,
 
+              expired: false,
+
               startedAt:
                 activeSession.startedAt,
 
@@ -246,6 +435,8 @@ export default async function handler(req) {
           : {
 
               active: false,
+
+              expired: false,
 
               startedAt: null,
 
@@ -279,7 +470,8 @@ export default async function handler(req) {
 
     try {
 
-      body = await req.json();
+      body =
+        await req.json();
 
     } catch {
 
@@ -299,29 +491,70 @@ export default async function handler(req) {
     if (body.action === "start") {
 
       /* -----------------------------------------------
-         CHECK EXISTING SESSION
+         CHECK ACTIVE SESSION
       ----------------------------------------------- */
 
       const existingSession =
         await sessions.findOne({
+
           deviceId,
+
           status: "active"
+
         });
 
       if (existingSession) {
 
-        return response(
-          {
-            success: false,
+        const expiry =
+          new Date(
+            existingSession.expiresAt
+          ).getTime();
 
-            error:
-              "SESSION_ALREADY_ACTIVE",
+        /* ---------------------------------------------
+           EXPIRED SESSION
+        --------------------------------------------- */
 
-            expiresAt:
-              existingSession.expiresAt
-          },
-          409
-        );
+        if (
+          expiry <= Date.now()
+        ) {
+
+          await sessions.updateOne(
+
+            {
+              _id:
+                existingSession._id
+            },
+
+            {
+              $set: {
+
+                status:
+                  "expired",
+
+                expiredAt:
+                  new Date()
+
+              }
+
+            }
+
+          );
+
+        } else {
+
+          return response(
+            {
+              success: false,
+
+              error:
+                "SESSION_ALREADY_ACTIVE",
+
+              expiresAt:
+                existingSession.expiresAt
+            },
+            409
+          );
+        }
       }
 
       /* -----------------------------------------------
@@ -329,7 +562,9 @@ export default async function handler(req) {
       ----------------------------------------------- */
 
       const result =
-        await blockAllDomains(policy);
+        await blockAllDomains(
+          policy
+        );
 
       if (!result.success) {
 
@@ -340,14 +575,16 @@ export default async function handler(req) {
             error:
               "DNS_BLOCK_FAILED",
 
-            details: result
+            details:
+              result
+
           },
           500
         );
       }
 
       /* -----------------------------------------------
-         CREATE SESSION
+         SESSION TIMES
       ----------------------------------------------- */
 
       const startedAt =
@@ -359,11 +596,16 @@ export default async function handler(req) {
           FOCUS_DURATION
         );
 
+      /* -----------------------------------------------
+         CREATE SESSION
+      ----------------------------------------------- */
+
       await sessions.insertOne({
 
         deviceId,
 
-        status: "active",
+        status:
+          "active",
 
         startedAt,
 
@@ -375,7 +617,7 @@ export default async function handler(req) {
       });
 
       /* -----------------------------------------------
-         UPDATE DEVICE
+         DEVICE → FOCUS
       ----------------------------------------------- */
 
       await devices.updateOne(
@@ -387,12 +629,14 @@ export default async function handler(req) {
         {
           $set: {
 
-            status: "focus",
+            status:
+              "focus",
 
             updatedAt:
               new Date()
 
           }
+
         }
 
       );
@@ -407,7 +651,13 @@ export default async function handler(req) {
         deviceId,
 
         blockedDomains:
-          DOMAINS,
+          result.results
+            .filter(
+              item => item.success
+            )
+            .map(
+              item => item.domain
+            ),
 
         startedAt,
 
@@ -420,18 +670,17 @@ export default async function handler(req) {
        COMPLETE SESSION
     ================================================= */
 
-    if (body.action === "complete") {
-
-      /* -----------------------------------------------
-         FIND ACTIVE SESSION
-      ----------------------------------------------- */
+    if (
+      body.action === "complete"
+    ) {
 
       const activeSession =
         await sessions.findOne({
 
           deviceId,
 
-          status: "active"
+          status:
+            "active"
 
         });
 
@@ -449,7 +698,7 @@ export default async function handler(req) {
       }
 
       /* -----------------------------------------------
-         CHECK EXPIRY
+         EXPIRY CHECK
       ----------------------------------------------- */
 
       const now =
@@ -471,6 +720,7 @@ export default async function handler(req) {
 
             remaining:
               expiry - now
+
           },
           403
         );
@@ -481,18 +731,11 @@ export default async function handler(req) {
       ----------------------------------------------- */
 
       const result =
-        await restoreAllDomains(policy);
+        await restoreAllDomains(
+          policy
+        );
 
       if (!result.success) {
-
-        /*
-          IMPORTANT:
-
-          Session remains active
-          if DNS restoration fails.
-
-          This prevents false unlock.
-        */
 
         return response(
           {
@@ -501,7 +744,9 @@ export default async function handler(req) {
             error:
               "DNS_RESTORE_FAILED",
 
-            details: result
+            details:
+              result
+
           },
           500
         );
@@ -528,6 +773,7 @@ export default async function handler(req) {
               new Date()
 
           }
+
         }
 
       );
@@ -552,6 +798,7 @@ export default async function handler(req) {
               new Date()
 
           }
+
         }
 
       );
@@ -564,7 +811,13 @@ export default async function handler(req) {
           "TACTIC SESSION COMPLETED",
 
         restoredDomains:
-          DOMAINS
+          result.results
+            .filter(
+              item => item.success
+            )
+            .map(
+              item => item.domain
+            )
 
       });
     }
@@ -604,7 +857,9 @@ export default async function handler(req) {
    NEXTDNS — BLOCK
 ===================================================== */
 
-async function blockAllDomains(policy) {
+async function blockAllDomains(
+  policy
+) {
 
   const profile =
     process.env.NEXTDNS_PROFILE_ID;
@@ -629,31 +884,36 @@ async function blockAllDomains(policy) {
       domain => {
 
         if (
-          domain === "instagram.com"
+          domain ===
+          "instagram.com"
         ) {
           return policy.instagram;
         }
 
         if (
-          domain === "snapchat.com"
+          domain ===
+          "snapchat.com"
         ) {
           return policy.snapchat;
         }
 
         if (
-          domain === "youtube.com"
+          domain ===
+          "youtube.com"
         ) {
           return policy.youtube;
         }
 
         return false;
+
       }
     );
 
   const results = [];
 
   for (
-    const domain of domainsToBlock
+    const domain of
+    domainsToBlock
   ) {
 
     try {
@@ -666,7 +926,8 @@ async function blockAllDomains(policy) {
           url,
           {
 
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
 
@@ -681,9 +942,11 @@ async function blockAllDomains(policy) {
             body:
               JSON.stringify({
 
-                id: domain,
+                id:
+                  domain,
 
-                active: true
+                active:
+                  true
 
               })
 
@@ -708,20 +971,24 @@ async function blockAllDomains(policy) {
 
         domain,
 
-        success: false,
+        success:
+          false,
 
         error:
           error.message
 
       });
+
     }
+
   }
 
   return {
 
     success:
       results.every(
-        item => item.success
+        item =>
+          item.success
       ),
 
     results
@@ -734,7 +1001,9 @@ async function blockAllDomains(policy) {
    NEXTDNS — RESTORE
 ===================================================== */
 
-async function restoreAllDomains(policy) {
+async function restoreAllDomains(
+  policy
+) {
 
   const profile =
     process.env.NEXTDNS_PROFILE_ID;
@@ -759,31 +1028,36 @@ async function restoreAllDomains(policy) {
       domain => {
 
         if (
-          domain === "instagram.com"
+          domain ===
+          "instagram.com"
         ) {
           return policy.instagram;
         }
 
         if (
-          domain === "snapchat.com"
+          domain ===
+          "snapchat.com"
         ) {
           return policy.snapchat;
         }
 
         if (
-          domain === "youtube.com"
+          domain ===
+          "youtube.com"
         ) {
           return policy.youtube;
         }
 
         return false;
+
       }
     );
 
   const results = [];
 
   for (
-    const domain of domainsToRestore
+    const domain of
+    domainsToRestore
   ) {
 
     try {
@@ -796,7 +1070,8 @@ async function restoreAllDomains(policy) {
           url,
           {
 
-            method: "PATCH",
+            method:
+              "PATCH",
 
             headers: {
 
@@ -811,7 +1086,8 @@ async function restoreAllDomains(policy) {
             body:
               JSON.stringify({
 
-                active: false
+                active:
+                  false
 
               })
 
@@ -836,23 +1112,55 @@ async function restoreAllDomains(policy) {
 
         domain,
 
-        success: false,
+        success:
+          false,
 
         error:
           error.message
 
       });
+
     }
+
   }
 
   return {
 
     success:
       results.every(
-        item => item.success
+        item =>
+          item.success
       ),
 
     results
 
   };
 }
+
+
+/* =====================================================
+   DEVICE REGISTRATION HELPER
+
+   Future admin/register endpoint can use:
+
+   const deviceId =
+     await generateDeviceId(devices);
+
+   const rawToken =
+     generateDeviceToken();
+
+   const tokenHash =
+     hashToken(rawToken);
+
+   await devices.insertOne({
+     deviceId,
+     tokenHash,
+     status: "active",
+     createdAt: new Date(),
+     updatedAt: new Date()
+   });
+
+   IMPORTANT:
+   rawToken should be shown ONLY ONCE
+   during device provisioning.
+===================================================== */
