@@ -11,12 +11,18 @@ const FOCUS_DURATION = 45 * 60 * 1000;
 let mongoClient;
 
 /* =====================================================
-   MONGODB CONNECTION
+   MONGODB
 ===================================================== */
 
 async function getDB() {
   if (!mongoClient) {
-    mongoClient = new MongoClient(process.env.MONGODB_URI);
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+      throw new Error("MONGODB_URI is missing");
+    }
+
+    mongoClient = new MongoClient(uri);
     await mongoClient.connect();
   }
 
@@ -27,31 +33,29 @@ async function getDB() {
    RESPONSE
 ===================================================== */
 
-function response(data, status = 200, extraHeaders = {}) {
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization",
-        "Access-Control-Allow-Methods":
-          "GET, POST, OPTIONS",
-        ...extraHeaders
-      }
+function response(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers":
+        "Content-Type, Authorization",
+      "Access-Control-Allow-Methods":
+        "GET, POST, OPTIONS"
     }
-  );
+  });
 }
 
 /* =====================================================
-   MAIN API
+   MAIN
 ===================================================== */
 
 export default async function handler(req) {
 
-  /* OPTIONS */
+  /* ===================================================
+     OPTIONS
+  =================================================== */
 
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -135,6 +139,30 @@ export default async function handler(req) {
   }
 
   /* ===================================================
+     POLICY
+  =================================================== */
+
+  let policy = await policies.findOne({
+    deviceId
+  });
+
+  if (!policy) {
+
+    policy = {
+      deviceId,
+
+      instagram: true,
+      snapchat: true,
+      youtube: true,
+
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    await policies.insertOne(policy);
+  }
+
+  /* ===================================================
      GET STATUS
   =================================================== */
 
@@ -143,10 +171,6 @@ export default async function handler(req) {
     const activeSession = await sessions.findOne({
       deviceId,
       status: "active"
-    });
-
-    const policy = await policies.findOne({
-      deviceId
     });
 
     return response({
@@ -169,10 +193,10 @@ export default async function handler(req) {
             expiresAt: null
           },
 
-      policy: policy || {
-        instagram: true,
-        snapchat: true,
-        youtube: true
+      policy: {
+        instagram: policy.instagram,
+        snapchat: policy.snapchat,
+        youtube: policy.youtube
       }
     });
   }
@@ -221,7 +245,9 @@ export default async function handler(req) {
         );
       }
 
-      /* BLOCK DNS */
+      /* -----------------------------------------------
+         BLOCK DOMAINS
+      ----------------------------------------------- */
 
       const result = await blockAllDomains();
 
@@ -237,12 +263,15 @@ export default async function handler(req) {
         );
       }
 
+      /* -----------------------------------------------
+         CREATE SESSION
+      ----------------------------------------------- */
+
       const startedAt = new Date();
+
       const expiresAt = new Date(
         startedAt.getTime() + FOCUS_DURATION
       );
-
-      /* SAVE SESSION */
 
       await sessions.insertOne({
         deviceId,
@@ -252,7 +281,9 @@ export default async function handler(req) {
         createdAt: new Date()
       });
 
-      /* UPDATE DEVICE */
+      /* -----------------------------------------------
+         UPDATE DEVICE
+      ----------------------------------------------- */
 
       await devices.updateOne(
         { deviceId },
@@ -267,8 +298,11 @@ export default async function handler(req) {
       return response({
         success: true,
         message: "TACTIC SESSION STARTED",
+
         deviceId,
+
         blockedDomains: DOMAINS,
+
         startedAt,
         expiresAt
       });
@@ -297,11 +331,14 @@ export default async function handler(req) {
       }
 
       const now = Date.now();
+
       const expiry = new Date(
         activeSession.expiresAt
       ).getTime();
 
-      /* TOO EARLY */
+      /* -----------------------------------------------
+         SESSION NOT FINISHED
+      ----------------------------------------------- */
 
       if (now < expiry) {
 
@@ -315,17 +352,13 @@ export default async function handler(req) {
         );
       }
 
-      /* RESTORE DNS */
+      /* -----------------------------------------------
+         RESTORE DNS
+      ----------------------------------------------- */
 
       const result = await restoreAllDomains();
 
       if (!result.success) {
-
-        /*
-         IMPORTANT:
-         Session remains ACTIVE if DNS restore
-         fails. This prevents false unlock.
-        */
 
         return response(
           {
@@ -337,7 +370,9 @@ export default async function handler(req) {
         );
       }
 
-      /* MARK SESSION COMPLETE */
+      /* -----------------------------------------------
+         COMPLETE SESSION
+      ----------------------------------------------- */
 
       await sessions.updateOne(
         {
@@ -351,7 +386,9 @@ export default async function handler(req) {
         }
       );
 
-      /* DEVICE READY */
+      /* -----------------------------------------------
+         DEVICE READY
+      ----------------------------------------------- */
 
       await devices.updateOne(
         { deviceId },
@@ -395,11 +432,8 @@ export default async function handler(req) {
 
 async function blockAllDomains() {
 
-  const profile =
-    process.env.NEXTDNS_PROFILE_ID;
-
-  const apiKey =
-    process.env.NEXTDNS_API_KEY;
+  const profile = process.env.NEXTDNS_PROFILE_ID;
+  const apiKey = process.env.NEXTDNS_API_KEY;
 
   if (!profile || !apiKey) {
 
@@ -463,11 +497,8 @@ async function blockAllDomains() {
 
 async function restoreAllDomains() {
 
-  const profile =
-    process.env.NEXTDNS_PROFILE_ID;
-
-  const apiKey =
-    process.env.NEXTDNS_API_KEY;
+  const profile = process.env.NEXTDNS_PROFILE_ID;
+  const apiKey = process.env.NEXTDNS_API_KEY;
 
   if (!profile || !apiKey) {
 
@@ -487,7 +518,6 @@ async function restoreAllDomains() {
         `https://api.nextdns.io/profiles/${profile}/denylist/${domain}`;
 
       const res = await fetch(url, {
-
         method: "PATCH",
 
         headers: {
