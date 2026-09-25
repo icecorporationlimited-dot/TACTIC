@@ -6,17 +6,21 @@
 const API_URL = "/.netlify/functions/tactic";
 const AUTH_URL = "/.netlify/functions/auth";
 const DEVICES_URL = "/.netlify/functions/my-devices";
+const ACTIVATE_URL = "/.netlify/functions/activate-device";
 
 /* =====================================================
    STORAGE
 ===================================================== */
 
-let sessionToken = localStorage.getItem("tactic_session");
+let sessionToken =
+  localStorage.getItem("tactic_session");
+
 let currentUser = JSON.parse(
   localStorage.getItem("tactic_user") || "null"
 );
 
-let selectedDevice = localStorage.getItem("tactic_device");
+let selectedDevice =
+  localStorage.getItem("tactic_device");
 
 let timerInterval = null;
 let remainingSeconds = 0;
@@ -26,50 +30,92 @@ let remainingSeconds = 0;
    DOM
 ===================================================== */
 
-const loginScreen = document.getElementById("loginScreen");
-const appScreen = document.getElementById("appScreen");
+const loginScreen =
+  document.getElementById("loginScreen");
 
-const loginForm = document.getElementById("loginForm");
-const registerForm = document.getElementById("registerForm");
+const appScreen =
+  document.getElementById("appScreen");
 
-const authTitle = document.getElementById("authTitle");
-const switchAuth = document.getElementById("switchAuth");
+const loginForm =
+  document.getElementById("loginForm");
 
-const emailInput = document.getElementById("emailInput");
-const passwordInput = document.getElementById("passwordInput");
+const registerForm =
+  document.getElementById("registerForm");
 
-const registerEmail = document.getElementById("registerEmail");
-const registerPassword = document.getElementById("registerPassword");
+const authTitle =
+  document.getElementById("authTitle");
+
+const switchAuth =
+  document.getElementById("switchAuth");
+
+const emailInput =
+  document.getElementById("emailInput");
+
+const passwordInput =
+  document.getElementById("passwordInput");
+
+const registerEmail =
+  document.getElementById("registerEmail");
+
+const registerPassword =
+  document.getElementById("registerPassword");
+
 const registerPasswordConfirm =
   document.getElementById("registerPasswordConfirm");
 
-const loginMessage = document.getElementById("loginMessage");
+const loginMessage =
+  document.getElementById("loginMessage");
 
-const deviceSelect = document.getElementById("deviceSelect");
-const refreshDevices = document.getElementById("refreshDevices");
-const deviceListMessage = document.getElementById("deviceListMessage");
+const deviceSelect =
+  document.getElementById("deviceSelect");
 
-const logoutButton = document.getElementById("logoutButton");
+const refreshDevices =
+  document.getElementById("refreshDevices");
 
-const startFocus = document.getElementById("startFocus");
+const deviceListMessage =
+  document.getElementById("deviceListMessage");
 
-const timer = document.getElementById("timer");
-const timerStatus = document.getElementById("timerStatus");
+const logoutButton =
+  document.getElementById("logoutButton");
 
-const deviceName = document.getElementById("deviceName");
-const deviceState = document.getElementById("deviceState");
+const startFocus =
+  document.getElementById("startFocus");
 
-const deviceStatus = document.getElementById("deviceStatus");
-const modeText = document.getElementById("modeText");
-const sessionText = document.getElementById("sessionText");
+const timer =
+  document.getElementById("timer");
 
-const blockedCount = document.getElementById("blockedCount");
+const timerStatus =
+  document.getElementById("timerStatus");
 
-const instagramState = document.getElementById("instagramState");
-const snapchatState = document.getElementById("snapchatState");
-const youtubeState = document.getElementById("youtubeState");
+const deviceName =
+  document.getElementById("deviceName");
 
-const systemLog = document.getElementById("systemLog");
+const deviceState =
+  document.getElementById("deviceState");
+
+const deviceStatus =
+  document.getElementById("deviceStatus");
+
+const modeText =
+  document.getElementById("modeText");
+
+const sessionText =
+  document.getElementById("sessionText");
+
+const blockedCount =
+  document.getElementById("blockedCount");
+
+const instagramState =
+  document.getElementById("instagramState");
+
+const snapchatState =
+  document.getElementById("snapchatState");
+
+const youtubeState =
+  document.getElementById("youtubeState");
+
+const systemLog =
+  document.getElementById("systemLog");
 
 const activationCode =
   document.getElementById("activationCode");
@@ -83,6 +129,7 @@ const activationMessage =
 const activationBox =
   document.getElementById("activationBox");
 
+
 /* =====================================================
    AUTH MODE
 ===================================================== */
@@ -95,35 +142,52 @@ switchAuth?.addEventListener("click", () => {
 
   if (registerMode) {
 
-    authTitle.textContent = "CREATE TACTIC ACCOUNT";
+    authTitle.textContent =
+      "CREATE TACTIC ACCOUNT";
 
-    loginForm.style.display = "none";
-    registerForm.style.display = "block";
+    loginForm.style.display =
+      "none";
 
-    switchAuth.textContent = "ALREADY HAVE AN ACCOUNT? LOGIN";
+    registerForm.style.display =
+      "block";
 
-    loginMessage.textContent = "";
+    switchAuth.textContent =
+      "ALREADY HAVE AN ACCOUNT? LOGIN";
+
+    loginMessage.textContent =
+      "";
 
   } else {
 
-    authTitle.textContent = "LOGIN TO TACTIC";
+    authTitle.textContent =
+      "LOGIN TO TACTIC";
 
-    loginForm.style.display = "block";
-    registerForm.style.display = "none";
+    loginForm.style.display =
+      "block";
 
-    switchAuth.textContent = "CREATE A NEW ACCOUNT";
+    registerForm.style.display =
+      "none";
 
-    loginMessage.textContent = "";
+    switchAuth.textContent =
+      "CREATE A NEW ACCOUNT";
+
+    loginMessage.textContent =
+      "";
+
   }
 
 });
 
 
 /* =====================================================
-   API
+   API REQUEST
 ===================================================== */
 
-async function apiRequest(url, method = "GET", body = null) {
+async function apiRequest(
+  url,
+  method = "GET",
+  body = null
+) {
 
   const options = {
     method,
@@ -131,31 +195,46 @@ async function apiRequest(url, method = "GET", body = null) {
   };
 
   if (sessionToken) {
-    options.headers.Authorization = `Bearer ${sessionToken}`;
+
+    options.headers.Authorization =
+      `Bearer ${sessionToken}`;
+
   }
 
   if (body) {
 
-    options.headers["Content-Type"] = "application/json";
+    options.headers["Content-Type"] =
+      "application/json";
 
-    options.body = JSON.stringify(body);
+    options.body =
+      JSON.stringify(body);
+
   }
 
-  const response = await fetch(url, options);
+  const response =
+    await fetch(url, options);
 
   let data = {};
 
   try {
-    data = await response.json();
+
+    data =
+      await response.json();
+
   } catch {
+
     data = {};
+
   }
 
   if (response.status === 401) {
 
     await logout(false);
 
-    throw new Error("SESSION_EXPIRED");
+    throw new Error(
+      "SESSION_EXPIRED"
+    );
+
   }
 
   if (!response.ok) {
@@ -165,9 +244,11 @@ async function apiRequest(url, method = "GET", body = null) {
       data.error ||
       "REQUEST_FAILED"
     );
+
   }
 
   return data;
+
 }
 
 
@@ -175,172 +256,218 @@ async function apiRequest(url, method = "GET", body = null) {
    LOGIN
 ===================================================== */
 
-loginForm?.addEventListener("submit", async (event) => {
+loginForm?.addEventListener(
+  "submit",
+  async event => {
 
-  event.preventDefault();
+    event.preventDefault();
 
-  const email = emailInput.value.trim();
-  const password = passwordInput.value;
+    const email =
+      emailInput.value.trim();
 
-  loginMessage.textContent = "AUTHENTICATING...";
-
-  try {
-
-    const data = await fetch(AUTH_URL, {
-
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json"
-      },
-
-      body: JSON.stringify({
-        action: "login",
-        email,
-        password
-      })
-
-    });
-
-    const result = await data.json();
-
-    if (!data.ok || !result.success) {
-
-      throw new Error(
-        result.message ||
-        result.error ||
-        "LOGIN_FAILED"
-      );
-    }
-
-    sessionToken = result.token;
-    currentUser = result.user;
-
-    localStorage.setItem(
-      "tactic_session",
-      sessionToken
-    );
-
-    localStorage.setItem(
-      "tactic_user",
-      JSON.stringify(currentUser)
-    );
-
-    loginMessage.textContent = "LOGIN SUCCESSFUL";
-
-    showApp();
-
-    await loadDevices();
-
-  } catch (error) {
+    const password =
+      passwordInput.value;
 
     loginMessage.textContent =
-      error.message === "LOGIN_FAILED"
-        ? "INVALID EMAIL OR PASSWORD"
-        : error.message;
+      "AUTHENTICATING...";
+
+    try {
+
+      const response =
+        await fetch(
+          AUTH_URL,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
+
+            body: JSON.stringify({
+              action: "login",
+              email,
+              password
+            })
+          }
+        );
+
+      const result =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !result.success
+      ) {
+
+        throw new Error(
+          result.message ||
+          result.error ||
+          "LOGIN_FAILED"
+        );
+
+      }
+
+      sessionToken =
+        result.token;
+
+      currentUser =
+        result.user;
+
+      localStorage.setItem(
+        "tactic_session",
+        sessionToken
+      );
+
+      localStorage.setItem(
+        "tactic_user",
+        JSON.stringify(currentUser)
+      );
+
+      loginMessage.textContent =
+        "LOGIN SUCCESSFUL";
+
+      showApp();
+
+      await loadDevices();
+
+    } catch (error) {
+
+      loginMessage.textContent =
+        error.message ===
+        "LOGIN_FAILED"
+          ? "INVALID EMAIL OR PASSWORD"
+          : error.message;
+
+    }
 
   }
-
-});
+);
 
 
 /* =====================================================
    REGISTER
 ===================================================== */
 
-registerForm?.addEventListener("submit", async (event) => {
+registerForm?.addEventListener(
+  "submit",
+  async event => {
 
-  event.preventDefault();
+    event.preventDefault();
 
-  const email = registerEmail.value.trim();
-  const password = registerPassword.value;
-  const confirmPassword = registerPasswordConfirm.value;
+    const email =
+      registerEmail.value.trim();
 
-  if (password !== confirmPassword) {
+    const password =
+      registerPassword.value;
 
-    loginMessage.textContent =
-      "PASSWORDS DO NOT MATCH";
+    const confirmPassword =
+      registerPasswordConfirm.value;
 
-    return;
-  }
+    if (
+      password !==
+      confirmPassword
+    ) {
 
-  if (password.length < 8) {
+      loginMessage.textContent =
+        "PASSWORDS DO NOT MATCH";
 
-    loginMessage.textContent =
-      "PASSWORD MUST BE AT LEAST 8 CHARACTERS";
+      return;
 
-    return;
-  }
+    }
 
-  loginMessage.textContent =
-    "CREATING ACCOUNT...";
+    if (password.length < 8) {
 
-  try {
+      loginMessage.textContent =
+        "PASSWORD MUST BE AT LEAST 8 CHARACTERS";
 
-    const response = await fetch(AUTH_URL, {
+      return;
 
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json"
-      },
-
-      body: JSON.stringify({
-
-        action: "register",
-
-        email,
-
-        password
-
-      })
-
-    });
-
-    const result = await response.json();
-
-    if (!response.ok || !result.success) {
-
-      throw new Error(
-        result.message ||
-        result.error ||
-        "REGISTRATION_FAILED"
-      );
     }
 
     loginMessage.textContent =
-      "ACCOUNT CREATED. YOU CAN LOGIN NOW.";
+      "CREATING ACCOUNT...";
 
-    /*
-      Switch back to login
-    */
+    try {
 
-    registerMode = false;
+      const response =
+        await fetch(
+          AUTH_URL,
+          {
+            method: "POST",
 
-    authTitle.textContent =
-      "LOGIN TO TACTIC";
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
 
-    loginForm.style.display = "block";
-    registerForm.style.display = "none";
+            body: JSON.stringify({
+              action: "register",
+              email,
+              password
+            })
+          }
+        );
 
-    switchAuth.textContent =
-      "CREATE A NEW ACCOUNT";
+      const result =
+        await response.json();
 
-    emailInput.value = email;
-    passwordInput.value = "";
+      if (
+        !response.ok ||
+        !result.success
+      ) {
 
-    registerEmail.value = "";
-    registerPassword.value = "";
-    registerPasswordConfirm.value = "";
+        throw new Error(
+          result.message ||
+          result.error ||
+          "REGISTRATION_FAILED"
+        );
 
-  } catch (error) {
+      }
 
-    loginMessage.textContent =
-      error.message || "REGISTRATION_FAILED";
+      loginMessage.textContent =
+        "ACCOUNT CREATED. YOU CAN LOGIN NOW.";
+
+      registerMode =
+        false;
+
+      authTitle.textContent =
+        "LOGIN TO TACTIC";
+
+      loginForm.style.display =
+        "block";
+
+      registerForm.style.display =
+        "none";
+
+      switchAuth.textContent =
+        "CREATE A NEW ACCOUNT";
+
+      emailInput.value =
+        email;
+
+      passwordInput.value =
+        "";
+
+      registerEmail.value =
+        "";
+
+      registerPassword.value =
+        "";
+
+      registerPasswordConfirm.value =
+        "";
+
+    } catch (error) {
+
+      loginMessage.textContent =
+        error.message ||
+        "REGISTRATION_FAILED";
+
+    }
 
   }
-
-});
+);
 
 
 /* =====================================================
@@ -349,8 +476,11 @@ registerForm?.addEventListener("submit", async (event) => {
 
 function showApp() {
 
-  loginScreen.style.display = "none";
-  appScreen.style.display = "block";
+  loginScreen.style.display =
+    "none";
+
+  appScreen.style.display =
+    "block";
 
 }
 
@@ -361,41 +491,64 @@ function showApp() {
 
 async function loadDevices() {
 
-  if (!sessionToken) return;
+  if (!sessionToken) {
+    return;
+  }
 
   deviceListMessage.textContent =
     "LOADING DEVICES...";
 
   try {
 
-    const data = await apiRequest(
-      DEVICES_URL,
-      "GET"
-    );
+    const data =
+      await apiRequest(
+        DEVICES_URL,
+        "GET"
+      );
 
-    const devices = data.devices || [];
+    const devices =
+      data.devices || [];
 
-    deviceSelect.innerHTML = "";
+    deviceSelect.innerHTML =
+      "";
+
+    /* ---------------------------------------------
+       NO DEVICES
+    --------------------------------------------- */
 
     if (!devices.length) {
 
-  deviceListMessage.textContent =
-    "NO TACTIC DEVICE LINKED TO THIS ACCOUNT.";
+      deviceListMessage.textContent =
+        "NO TACTIC DEVICE LINKED TO THIS ACCOUNT.";
 
-  selectedDevice = null;
+      selectedDevice =
+        null;
 
-  localStorage.removeItem("tactic_device");
+      localStorage.removeItem(
+        "tactic_device"
+      );
 
-  if (activationBox) {
-    activationBox.style.display = "block";
-  }
+      if (activationBox) {
 
-  return;
-}
+        activationBox.style.display =
+          "block";
 
-if (activationBox) {
-  activationBox.style.display = "block";
-}
+      }
+
+      return;
+
+    }
+
+    /* ---------------------------------------------
+       DEVICES EXIST
+    --------------------------------------------- */
+
+    if (activationBox) {
+
+      activationBox.style.display =
+        "none";
+
+    }
 
     deviceListMessage.textContent =
       `${devices.length} DEVICE(S) AVAILABLE`;
@@ -405,23 +558,30 @@ if (activationBox) {
       const option =
         document.createElement("option");
 
-      option.value = device.deviceId;
+      option.value =
+        device.deviceId;
 
       option.textContent =
-        `${device.deviceId} — ${device.status.toUpperCase()}`;
+        `${device.deviceId} — ${String(
+          device.status || "active"
+        ).toUpperCase()}`;
 
-      deviceSelect.appendChild(option);
+      deviceSelect.appendChild(
+        option
+      );
 
     });
 
-    /*
-      Restore previously selected device
-    */
+    /* ---------------------------------------------
+       RESTORE DEVICE
+    --------------------------------------------- */
 
-    const exists = devices.some(
-      device =>
-        device.deviceId === selectedDevice
-    );
+    const exists =
+      devices.some(
+        device =>
+          device.deviceId ===
+          selectedDevice
+      );
 
     if (!exists) {
 
@@ -445,9 +605,22 @@ if (activationBox) {
     deviceListMessage.textContent =
       error.message;
 
+    if (
+      error.message !==
+      "SESSION_EXPIRED"
+    ) {
+
+      addLog(
+        "ERROR",
+        error.message
+      );
+
+    }
+
   }
 
 }
+
 
 /* =====================================================
    ACTIVATE DEVICE
@@ -468,9 +641,11 @@ activateDevice?.addEventListener(
         "ENTER YOUR ACTIVATION CODE";
 
       return;
+
     }
 
-    activateDevice.disabled = true;
+    activateDevice.disabled =
+      true;
 
     activationMessage.textContent =
       "ACTIVATING DEVICE...";
@@ -479,12 +654,13 @@ activateDevice?.addEventListener(
 
       const response =
         await fetch(
-          "/.netlify/functions/activate-device",
+          ACTIVATE_URL,
           {
             method: "POST",
 
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type":
+                "application/json",
 
               "Authorization":
                 `Bearer ${sessionToken}`
@@ -499,7 +675,10 @@ activateDevice?.addEventListener(
       const data =
         await response.json();
 
-      if (!response.ok || !data.success) {
+      if (
+        !response.ok ||
+        !data.success
+      ) {
 
         throw new Error(
           data.message ||
@@ -519,7 +698,8 @@ activateDevice?.addEventListener(
         selectedDevice
       );
 
-      activationCode.value = "";
+      activationCode.value =
+        "";
 
       activationMessage.textContent =
         `DEVICE ACTIVATED — ${newDevice.deviceId}`;
@@ -543,10 +723,12 @@ activateDevice?.addEventListener(
 
     }
 
-    activateDevice.disabled = false;
+    activateDevice.disabled =
+      false;
 
   }
 );
+
 
 /* =====================================================
    DEVICE CHANGE
@@ -590,23 +772,31 @@ refreshDevices?.addEventListener(
 
 async function loadDeviceStatus() {
 
-  if (!selectedDevice) return;
+  if (!selectedDevice) {
+    return;
+  }
 
   try {
 
     const url =
-      `${API_URL}?deviceId=${encodeURIComponent(selectedDevice)}`;
+      `${API_URL}?deviceId=${encodeURIComponent(
+        selectedDevice
+      )}`;
 
-    const data = await apiRequest(
-      url,
-      "GET"
-    );
+    const data =
+      await apiRequest(
+        url,
+        "GET"
+      );
 
     updateDeviceUI(data);
 
   } catch (error) {
 
-    if (error.message !== "SESSION_EXPIRED") {
+    if (
+      error.message !==
+      "SESSION_EXPIRED"
+    ) {
 
       addLog(
         "ERROR",
@@ -621,13 +811,10 @@ async function loadDeviceStatus() {
 
 
 /* =====================================================
-   UPDATE UI
+   UPDATE DEVICE UI
 ===================================================== */
 
 function updateDeviceUI(data) {
-
-  const device =
-    data.device || {};
 
   const session =
     data.session || {};
@@ -635,66 +822,135 @@ function updateDeviceUI(data) {
   const policy =
     data.policy || {};
 
-  deviceName.textContent =
-    device.deviceId ||
+  const currentStatus =
+    data.status ||
+    data.device?.status ||
+    "active";
+
+  const currentDeviceId =
+    data.deviceId ||
+    data.device?.deviceId ||
     selectedDevice ||
     "UNKNOWN";
 
-  const status =
-    device.status || "active";
 
-  deviceState.textContent =
-    status.toUpperCase();
+  /* ---------------------------------------------
+     DEVICE
+  --------------------------------------------- */
 
-  deviceStatus.textContent =
-    status.toUpperCase();
+  if (deviceName) {
 
-  modeText.textContent =
-    status === "focus"
-      ? "FOCUS"
-      : "STANDBY";
+    deviceName.textContent =
+      currentDeviceId;
 
-  if (session.active) {
+  }
 
-    const expiresAt =
-      new Date(session.expiresAt);
+  if (deviceState) {
 
-    const now =
-      Date.now();
+    deviceState.textContent =
+      currentStatus.toUpperCase();
+
+  }
+
+  if (deviceStatus) {
+
+    deviceStatus.textContent =
+      currentStatus.toUpperCase();
+
+  }
+
+  if (modeText) {
+
+    modeText.textContent =
+      currentStatus === "focus"
+        ? "FOCUS"
+        : "STANDBY";
+
+  }
+
+
+  /* ---------------------------------------------
+     SESSION
+  --------------------------------------------- */
+
+  const expiresAt =
+    session.expiresAt
+      ? new Date(
+          session.expiresAt
+        ).getTime()
+      : 0;
+
+  const now =
+    Date.now();
+
+  const sessionActive =
+    expiresAt > now &&
+    session.expired !== true;
+
+  if (sessionActive) {
 
     remainingSeconds =
       Math.max(
         0,
         Math.floor(
-          (expiresAt.getTime() - now) / 1000
+          (
+            expiresAt -
+            now
+          ) / 1000
         )
       );
 
+    if (sessionText) {
+
+      sessionText.textContent =
+        "ACTIVE";
+
+    }
+
+    if (timerStatus) {
+
+      timerStatus.textContent =
+        "FOCUS SESSION ACTIVE";
+
+    }
+
+    if (startFocus) {
+
+      startFocus.disabled =
+        true;
+
+    }
+
     startTimer();
-
-    sessionText.textContent =
-      "ACTIVE";
-
-    timerStatus.textContent =
-      "FOCUS SESSION ACTIVE";
-
-    startFocus.disabled = true;
 
   } else {
 
     stopTimer();
 
-    sessionText.textContent =
-      session.expired
-        ? "EXPIRED"
-        : "NONE";
+    if (sessionText) {
 
-    timerStatus.textContent =
-      session.expired
-        ? "SESSION COMPLETED"
-        : "READY";
+      sessionText.textContent =
+        session.expired
+          ? "EXPIRED"
+          : "NONE";
 
-    startFocus.disabled = false;
+    }
+
+    if (timerStatus) {
+
+      timerStatus.textContent =
+        session.expired
+          ? "SESSION COMPLETED"
+          : "READY";
+
+    }
+
+    if (startFocus) {
+
+      startFocus.disabled =
+        false;
+
+    }
 
   }
 
@@ -711,38 +967,46 @@ function updatePolicy(policy) {
 
   const services = [
     {
-      name: "instagram.com",
+      key: "instagram",
       element: instagramState
     },
     {
-      name: "snapchat.com",
+      key: "snapchat",
       element: snapchatState
     },
     {
-      name: "youtube.com",
+      key: "youtube",
       element: youtubeState
     }
   ];
 
   let count = 0;
 
-  services.forEach(service => {
+  services.forEach(
+    service => {
 
-    const blocked =
-      policy[service.name] === true;
+      const blocked =
+        policy[
+          service.key
+        ] === true;
 
-    if (blocked) count++;
+      if (blocked) {
 
-    if (service.element) {
+        count++;
 
-      service.element.textContent =
-        blocked
-          ? "BLOCKED"
-          : "AVAILABLE";
+      }
+
+      if (service.element) {
+
+        service.element.textContent =
+          blocked
+            ? "BLOCKED"
+            : "AVAILABLE";
+
+      }
 
     }
-
-  });
+  );
 
   if (blockedCount) {
 
@@ -770,23 +1034,27 @@ startFocus?.addEventListener(
       );
 
       return;
+
     }
 
-    startFocus.disabled = true;
+    startFocus.disabled =
+      true;
 
     timerStatus.textContent =
       "STARTING FOCUS...";
 
     try {
 
-      const data = await apiRequest(
-        API_URL,
-        "POST",
-        {
-          action: "start",
-          deviceId: selectedDevice
-        }
-      );
+      const data =
+        await apiRequest(
+          API_URL,
+          "POST",
+          {
+            action: "start",
+            deviceId:
+              selectedDevice
+          }
+        );
 
       addLog(
         "FOCUS",
@@ -797,7 +1065,8 @@ startFocus?.addEventListener(
 
     } catch (error) {
 
-      startFocus.disabled = false;
+      startFocus.disabled =
+        false;
 
       timerStatus.textContent =
         "READY";
@@ -819,18 +1088,22 @@ startFocus?.addEventListener(
 
 async function completeSession() {
 
-  if (!selectedDevice) return;
+  if (!selectedDevice) {
+    return;
+  }
 
   try {
 
-    const data = await apiRequest(
-      API_URL,
-      "POST",
-      {
-        action: "complete",
-        deviceId: selectedDevice
-      }
-    );
+    const data =
+      await apiRequest(
+        API_URL,
+        "POST",
+        {
+          action: "complete",
+          deviceId:
+            selectedDevice
+        }
+      );
 
     updateDeviceUI(data);
 
@@ -846,6 +1119,13 @@ async function completeSession() {
       error.message
     );
 
+    /*
+      Re-sync from backend instead of
+      leaving the UI stuck.
+    */
+
+    await loadDeviceStatus();
+
   }
 
 }
@@ -857,34 +1137,47 @@ async function completeSession() {
 
 function startTimer() {
 
-  if (timerInterval) return;
+  if (timerInterval) {
+    updateTimerDisplay();
+    return;
+  }
 
   updateTimerDisplay();
 
   timerInterval =
-    setInterval(async () => {
+    setInterval(
+      async () => {
 
-      remainingSeconds--;
+        if (
+          remainingSeconds > 0
+        ) {
 
-      if (remainingSeconds <= 0) {
+          remainingSeconds--;
 
-        remainingSeconds = 0;
+        }
 
         updateTimerDisplay();
 
-        stopTimer();
+        if (
+          remainingSeconds <= 0
+        ) {
 
-        timerStatus.textContent =
-          "COMPLETING SESSION...";
+          stopTimer();
 
-        await completeSession();
+          if (timerStatus) {
 
-        return;
-      }
+            timerStatus.textContent =
+              "COMPLETING SESSION...";
 
-      updateTimerDisplay();
+          }
 
-    }, 1000);
+          await completeSession();
+
+        }
+
+      },
+      1000
+    );
 
 }
 
@@ -893,13 +1186,17 @@ function stopTimer() {
 
   if (timerInterval) {
 
-    clearInterval(timerInterval);
+    clearInterval(
+      timerInterval
+    );
 
-    timerInterval = null;
+    timerInterval =
+      null;
 
   }
 
-  remainingSeconds = 0;
+  remainingSeconds =
+    0;
 
   updateTimerDisplay();
 
@@ -907,6 +1204,10 @@ function stopTimer() {
 
 
 function updateTimerDisplay() {
+
+  if (!timer) {
+    return;
+  }
 
   const minutes =
     Math.floor(
@@ -917,7 +1218,13 @@ function updateTimerDisplay() {
     remainingSeconds % 60;
 
   timer.textContent =
-    `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    `${String(minutes).padStart(
+      2,
+      "0"
+    )}:${String(seconds).padStart(
+      2,
+      "0"
+    )}`;
 
 }
 
@@ -936,7 +1243,9 @@ logoutButton?.addEventListener(
 );
 
 
-async function logout(callBackend = true) {
+async function logout(
+  callBackend = true
+) {
 
   const token =
     sessionToken;
@@ -954,7 +1263,9 @@ async function logout(callBackend = true) {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
+
             Authorization:
               `Bearer ${token}`
           },
@@ -969,9 +1280,14 @@ async function logout(callBackend = true) {
 
   }
 
-  sessionToken = null;
-  currentUser = null;
-  selectedDevice = null;
+  sessionToken =
+    null;
+
+  currentUser =
+    null;
+
+  selectedDevice =
+    null;
 
   localStorage.removeItem(
     "tactic_session"
@@ -987,11 +1303,17 @@ async function logout(callBackend = true) {
 
   stopTimer();
 
-  appScreen.style.display = "none";
-  loginScreen.style.display = "block";
+  appScreen.style.display =
+    "none";
 
-  loginForm.style.display = "block";
-  registerForm.style.display = "none";
+  loginScreen.style.display =
+    "block";
+
+  loginForm.style.display =
+    "block";
+
+  registerForm.style.display =
+    "none";
 
   authTitle.textContent =
     "LOGIN TO TACTIC";
@@ -1009,18 +1331,29 @@ async function logout(callBackend = true) {
    SYSTEM LOG
 ===================================================== */
 
-function addLog(type, message) {
+function addLog(
+  type,
+  message
+) {
 
-  if (!systemLog) return;
+  if (!systemLog) {
+    return;
+  }
 
   const row =
-    document.createElement("div");
+    document.createElement(
+      "div"
+    );
 
   const time =
-    document.createElement("span");
+    document.createElement(
+      "span"
+    );
 
   const text =
-    document.createElement("strong");
+    document.createElement(
+      "strong"
+    );
 
   const now =
     new Date();
@@ -1037,10 +1370,17 @@ function addLog(type, message) {
   text.textContent =
     `[${type}] ${message}`;
 
-  row.appendChild(time);
-  row.appendChild(text);
+  row.appendChild(
+    time
+  );
 
-  systemLog.prepend(row);
+  row.appendChild(
+    text
+  );
+
+  systemLog.prepend(
+    row
+  );
 
 }
 
@@ -1060,6 +1400,7 @@ async function init() {
       "none";
 
     return;
+
   }
 
   loginScreen.style.display =
