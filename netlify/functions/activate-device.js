@@ -12,6 +12,23 @@ async function getDB() {
   return mongoClient.db("tactic");
 }
 
+function json(data, status = 200) {
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "POST, OPTIONS"
+      }
+    }
+  );
+}
+
 function hashToken(value) {
   return crypto
     .createHash("sha256")
@@ -19,71 +36,65 @@ function hashToken(value) {
     .digest("hex");
 }
 
-export default async (req) => {
+export default async function handler(req) {
 
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Content-Type": "application/json"
-  };
+  /* =====================================================
+     CORS
+  ===================================================== */
 
   if (req.method === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers
-    };
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "POST, OPTIONS"
+      }
+    });
   }
 
   if (req.method !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        message: "METHOD_NOT_ALLOWED"
-      })
-    };
+    return json({
+      success: false,
+      message: "METHOD_NOT_ALLOWED"
+    }, 405);
   }
 
   try {
 
-    /* ================================================
-       USER SESSION
-    ================================================ */
+    /* =====================================================
+       AUTH
+    ===================================================== */
 
     const authHeader =
-      req.headers.authorization ||
-      req.headers.Authorization;
+      req.headers.get("authorization");
 
-    if (!authHeader?.startsWith("Bearer ")) {
-
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "LOGIN_REQUIRED"
-        })
-      };
-
+    if (
+      !authHeader ||
+      !authHeader.startsWith("Bearer ")
+    ) {
+      return json({
+        success: false,
+        message: "LOGIN_REQUIRED"
+      }, 401);
     }
 
     const sessionToken =
       authHeader.substring(7).trim();
 
     if (!sessionToken) {
-
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "LOGIN_REQUIRED"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "LOGIN_REQUIRED"
+      }, 401);
     }
+
+
+    /* =====================================================
+       DATABASE
+    ===================================================== */
 
     const db = await getDB();
 
@@ -91,65 +102,57 @@ export default async (req) => {
       hashToken(sessionToken);
 
     const session =
-      await db.collection("authSessions").findOne({
-        tokenHash: sessionHash
-      });
+      await db
+        .collection("authSessions")
+        .findOne({
+          tokenHash: sessionHash
+        });
 
     if (!session) {
-
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "INVALID_SESSION"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "INVALID_SESSION"
+      }, 401);
     }
+
+
+    /* =====================================================
+       SESSION EXPIRY
+    ===================================================== */
 
     if (
       session.expiresAt &&
       new Date(session.expiresAt) <= new Date()
     ) {
 
-      await db.collection("authSessions").deleteOne({
-        tokenHash: sessionHash
-      });
+      await db
+        .collection("authSessions")
+        .deleteOne({
+          tokenHash: sessionHash
+        });
 
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "SESSION_EXPIRED"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "SESSION_EXPIRED"
+      }, 401);
     }
 
     const userId = session.userId;
 
 
-    /* ================================================
-       BODY
-    ================================================ */
+    /* =====================================================
+       REQUEST BODY
+    ===================================================== */
 
     let body = {};
 
     try {
-      body = JSON.parse(req.body || "{}");
+      body = await req.json();
     } catch {
-
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "INVALID_JSON"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "INVALID_JSON"
+      }, 400);
     }
 
     const activationCode =
@@ -158,83 +161,64 @@ export default async (req) => {
         .toUpperCase();
 
     if (!activationCode) {
-
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "ACTIVATION_CODE_REQUIRED"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "ACTIVATION_CODE_REQUIRED"
+      }, 400);
     }
 
 
-    /* ================================================
+    /* =====================================================
        FIND DEVICE
-    ================================================ */
+    ===================================================== */
+
+    const devices =
+      db.collection("devices");
 
     const device =
-      await db.collection("devices").findOne({
+      await devices.findOne({
         activationCode
       });
 
     if (!device) {
-
-      return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "INVALID_ACTIVATION_CODE"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "INVALID_ACTIVATION_CODE"
+      }, 404);
     }
 
 
-    /* ================================================
+    /* =====================================================
        ALREADY ACTIVATED
-    ================================================ */
+    ===================================================== */
 
     if (device.userId) {
 
-      if (device.userId === userId) {
+      if (String(device.userId) === String(userId)) {
 
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: true,
-            message: "DEVICE_ALREADY_LINKED",
-            device: {
-              deviceId: device.deviceId,
-              status: device.status || "active"
-            }
-          })
-        };
-
+        return json({
+          success: true,
+          message: "DEVICE_ALREADY_LINKED",
+          device: {
+            deviceId: device.deviceId,
+            status: device.status || "active"
+          }
+        }, 200);
       }
 
-      return {
-        statusCode: 409,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "DEVICE_ALREADY_ACTIVATED"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "DEVICE_ALREADY_ACTIVATED"
+      }, 409);
     }
 
 
-    /* ================================================
+    /* =====================================================
        ACTIVATE DEVICE
-    ================================================ */
+    ===================================================== */
 
     const result =
-      await db.collection("devices").updateOne(
+      await devices.updateOne(
         {
           _id: device._id,
           userId: null,
@@ -254,49 +238,36 @@ export default async (req) => {
       );
 
     if (result.modifiedCount !== 1) {
-
-      return {
-        statusCode: 409,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          message: "DEVICE_ACTIVATION_CONFLICT"
-        })
-      };
-
+      return json({
+        success: false,
+        message: "DEVICE_ACTIVATION_CONFLICT"
+      }, 409);
     }
 
 
-    /* ================================================
+    /* =====================================================
        SUCCESS
-    ================================================ */
+    ===================================================== */
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        message: "DEVICE_ACTIVATED",
-        device: {
-          deviceId: device.deviceId,
-          status: "active"
-        }
-      })
-    };
+    return json({
+      success: true,
+      message: "DEVICE_ACTIVATED",
+      device: {
+        deviceId: device.deviceId,
+        status: "active"
+      }
+    }, 200);
 
   } catch (error) {
 
-    console.error("ACTIVATE DEVICE ERROR:", error);
+    console.error(
+      "ACTIVATE DEVICE ERROR:",
+      error
+    );
 
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        message: "SERVER_ERROR"
-      })
-    };
-
+    return json({
+      success: false,
+      message: "SERVER_ERROR"
+    }, 500);
   }
-
-};
+}
