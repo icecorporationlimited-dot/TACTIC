@@ -1,3 +1,5 @@
+import { MongoClient } from "mongodb";
+
 const DOMAINS = [
   "instagram.com",
   "snapchat.com",
@@ -6,399 +8,390 @@ const DOMAINS = [
 
 const FOCUS_DURATION = 45 * 60 * 1000;
 
-let session = {
-  active: false,
-  startedAt: null,
-  expiresAt: null
-};
+let mongoClient;
 
+/* =====================================================
+   MONGODB CONNECTION
+===================================================== */
 
-export default async (req) => {
-
-  // =====================================================
-  // BASIC CORS
-  // =====================================================
-
-  const headers = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
-  };
-
-
-  // =====================================================
-  // OPTIONS
-  // =====================================================
-
-  if (req.method === "OPTIONS") {
-
-    return new Response(
-      null,
-      {
-        status: 204,
-        headers
-      }
-    );
+async function getDB() {
+  if (!mongoClient) {
+    mongoClient = new MongoClient(process.env.MONGODB_URI);
+    await mongoClient.connect();
   }
 
+  return mongoClient.db("tactic");
+}
 
-  // =====================================================
-  // DEVICE AUTH
-  // =====================================================
+/* =====================================================
+   RESPONSE
+===================================================== */
 
-  const auth =
-    req.headers.get("Authorization");
+function response(data, status = 200, extraHeaders = {}) {
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "GET, POST, OPTIONS",
+        ...extraHeaders
+      }
+    }
+  );
+}
 
-  const expectedToken =
-    process.env.TACTIC_DEVICE_TOKEN;
+/* =====================================================
+   MAIN API
+===================================================== */
 
+export default async function handler(req) {
+
+  /* OPTIONS */
+
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization",
+        "Access-Control-Allow-Methods":
+          "GET, POST, OPTIONS"
+      }
+    });
+  }
+
+  /* ===================================================
+     AUTH
+  =================================================== */
+
+  const auth = req.headers.get("Authorization");
+  const expectedToken = process.env.TACTIC_DEVICE_TOKEN;
 
   if (
     !auth ||
     !expectedToken ||
     auth !== `Bearer ${expectedToken}`
   ) {
-
-    return new Response(
-
-      JSON.stringify({
+    return response(
+      {
         success: false,
         error: "UNAUTHORIZED"
-      }),
-
-      {
-        status: 401,
-        headers
-      }
+      },
+      401
     );
   }
 
+  /* ===================================================
+     DATABASE
+  =================================================== */
 
-  // =====================================================
-  // GET STATUS
-  // =====================================================
+  let db;
+
+  try {
+    db = await getDB();
+  } catch (error) {
+
+    console.error("MongoDB connection error:", error);
+
+    return response(
+      {
+        success: false,
+        error: "DATABASE_CONNECTION_FAILED"
+      },
+      500
+    );
+  }
+
+  const devices = db.collection("devices");
+  const sessions = db.collection("sessions");
+  const policies = db.collection("policies");
+
+  /* ===================================================
+     DEVICE
+  =================================================== */
+
+  const deviceId = "TAC-000001";
+
+  let device = await devices.findOne({
+    deviceId
+  });
+
+  if (!device) {
+
+    device = {
+      deviceId,
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    await devices.insertOne(device);
+  }
+
+  /* ===================================================
+     GET STATUS
+  =================================================== */
 
   if (req.method === "GET") {
 
-    return new Response(
+    const activeSession = await sessions.findOne({
+      deviceId,
+      status: "active"
+    });
 
-      JSON.stringify({
-        success: true,
+    const policy = await policies.findOne({
+      deviceId
+    });
 
-        session: {
-          active: session.active,
+    return response({
+      success: true,
 
-          startedAt:
-            session.startedAt,
+      device: {
+        deviceId,
+        status: device.status
+      },
 
-          expiresAt:
-            session.expiresAt
-        }
-      }),
+      session: activeSession
+        ? {
+            active: true,
+            startedAt: activeSession.startedAt,
+            expiresAt: activeSession.expiresAt
+          }
+        : {
+            active: false,
+            startedAt: null,
+            expiresAt: null
+          },
 
-      {
-        status: 200,
-        headers
+      policy: policy || {
+        instagram: true,
+        snapchat: true,
+        youtube: true
       }
-    );
+    });
   }
 
-
-  // =====================================================
-  // POST
-  // =====================================================
+  /* ===================================================
+     POST
+  =================================================== */
 
   if (req.method === "POST") {
 
     let body;
 
     try {
+      body = await req.json();
+    } catch {
 
-      body =
-        await req.json();
-
-    }
-
-    catch {
-
-      return new Response(
-
-        JSON.stringify({
+      return response(
+        {
           success: false,
           error: "INVALID_JSON"
-        }),
-
-        {
-          status: 400,
-          headers
-        }
+        },
+        400
       );
     }
 
+    /* =================================================
+       START SESSION
+    ================================================= */
 
-    // ===================================================
-    // START SESSION
-    // ===================================================
+    if (body.action === "start") {
 
-    if (
-      body.action === "start"
-    ) {
+      const existingSession = await sessions.findOne({
+        deviceId,
+        status: "active"
+      });
 
-      if (
-        session.active
-      ) {
+      if (existingSession) {
 
-        return new Response(
-
-          JSON.stringify({
+        return response(
+          {
             success: false,
             error: "SESSION_ALREADY_ACTIVE",
-
-            expiresAt:
-              session.expiresAt
-          }),
-
-          {
-            status: 409,
-            headers
-          }
+            expiresAt: existingSession.expiresAt
+          },
+          409
         );
       }
 
+      /* BLOCK DNS */
 
-      // -----------------------------------------------
-      // Block domains
-      // -----------------------------------------------
+      const result = await blockAllDomains();
 
-      const result =
-        await blockAllDomains();
+      if (!result.success) {
 
-
-      if (
-        !result.success
-      ) {
-
-        return new Response(
-
-          JSON.stringify({
+        return response(
+          {
             success: false,
             error: "DNS_BLOCK_FAILED",
             details: result
-          }),
-
-          {
-            status: 500,
-            headers
-          }
+          },
+          500
         );
       }
 
+      const startedAt = new Date();
+      const expiresAt = new Date(
+        startedAt.getTime() + FOCUS_DURATION
+      );
 
-      // -----------------------------------------------
-      // Create session
-      // -----------------------------------------------
+      /* SAVE SESSION */
 
-      const now =
-        Date.now();
+      await sessions.insertOne({
+        deviceId,
+        status: "active",
+        startedAt,
+        expiresAt,
+        createdAt: new Date()
+      });
 
-      const expires =
-        now + FOCUS_DURATION;
+      /* UPDATE DEVICE */
 
-
-      session.active =
-        true;
-
-      session.startedAt =
-        now;
-
-      session.expiresAt =
-        expires;
-
-
-      return new Response(
-
-        JSON.stringify({
-
-          success: true,
-
-          message:
-            "TACTIC SESSION STARTED",
-
-          blockedDomains:
-            DOMAINS,
-
-          startedAt:
-            now,
-
-          expiresAt:
-            expires
-        }),
-
+      await devices.updateOne(
+        { deviceId },
         {
-          status: 200,
-          headers
+          $set: {
+            status: "focus",
+            updatedAt: new Date()
+          }
         }
       );
+
+      return response({
+        success: true,
+        message: "TACTIC SESSION STARTED",
+        deviceId,
+        blockedDomains: DOMAINS,
+        startedAt,
+        expiresAt
+      });
     }
 
+    /* =================================================
+       COMPLETE SESSION
+    ================================================= */
 
-    // ===================================================
-    // COMPLETE SESSION
-    // ===================================================
+    if (body.action === "complete") {
 
-    if (
-      body.action === "complete"
-    ) {
+      const activeSession = await sessions.findOne({
+        deviceId,
+        status: "active"
+      });
 
-      if (
-        !session.active
-      ) {
+      if (!activeSession) {
 
-        return new Response(
-
-          JSON.stringify({
+        return response(
+          {
             success: false,
             error: "NO_ACTIVE_SESSION"
-          }),
-
-          {
-            status: 400,
-            headers
-          }
+          },
+          400
         );
       }
 
+      const now = Date.now();
+      const expiry = new Date(
+        activeSession.expiresAt
+      ).getTime();
 
-      // -----------------------------------------------
-      // Don't allow early completion
-      // -----------------------------------------------
+      /* TOO EARLY */
 
-      if (
-        Date.now() <
-        session.expiresAt
-      ) {
+      if (now < expiry) {
 
-        return new Response(
-
-          JSON.stringify({
+        return response(
+          {
             success: false,
             error: "SESSION_NOT_FINISHED",
-
-            remaining:
-              session.expiresAt -
-              Date.now()
-          }),
-
-          {
-            status: 403,
-            headers
-          }
+            remaining: expiry - now
+          },
+          403
         );
       }
 
+      /* RESTORE DNS */
 
-      // -----------------------------------------------
-      // Restore DNS
-      // -----------------------------------------------
+      const result = await restoreAllDomains();
 
-      const result =
-        await restoreAllDomains();
+      if (!result.success) {
 
+        /*
+         IMPORTANT:
+         Session remains ACTIVE if DNS restore
+         fails. This prevents false unlock.
+        */
 
-      if (
-        !result.success
-      ) {
-
-        return new Response(
-
-          JSON.stringify({
+        return response(
+          {
             success: false,
             error: "DNS_RESTORE_FAILED",
             details: result
-          }),
-
-          {
-            status: 500,
-            headers
-          }
+          },
+          500
         );
       }
 
+      /* MARK SESSION COMPLETE */
 
-      session.active =
-        false;
-
-      session.startedAt =
-        null;
-
-      session.expiresAt =
-        null;
-
-
-      return new Response(
-
-        JSON.stringify({
-
-          success: true,
-
-          message:
-            "TACTIC SESSION COMPLETED",
-
-          restoredDomains:
-            DOMAINS
-
-        }),
-
+      await sessions.updateOne(
         {
-          status: 200,
-          headers
+          _id: activeSession._id
+        },
+        {
+          $set: {
+            status: "completed",
+            completedAt: new Date()
+          }
         }
       );
+
+      /* DEVICE READY */
+
+      await devices.updateOne(
+        { deviceId },
+        {
+          $set: {
+            status: "active",
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      return response({
+        success: true,
+        message: "TACTIC SESSION COMPLETED",
+        restoredDomains: DOMAINS
+      });
     }
 
-
-    // ===================================================
-    // UNKNOWN ACTION
-    // ===================================================
-
-    return new Response(
-
-      JSON.stringify({
+    return response(
+      {
         success: false,
         error: "UNKNOWN_ACTION"
-      }),
-
-      {
-        status: 400,
-        headers
-      }
+      },
+      400
     );
   }
 
-
-  // =====================================================
-  // METHOD NOT ALLOWED
-  // =====================================================
-
-  return new Response(
-
-    JSON.stringify({
+  return response(
+    {
       success: false,
       error: "METHOD_NOT_ALLOWED"
-    }),
-
-    {
-      status: 405,
-      headers
-    }
+    },
+    405
   );
-};
+}
 
 
-// ========================================================
-// BLOCK ALL DOMAINS
-// ========================================================
+/* =====================================================
+   NEXTDNS — BLOCK
+===================================================== */
 
 async function blockAllDomains() {
 
@@ -408,11 +401,7 @@ async function blockAllDomains() {
   const apiKey =
     process.env.NEXTDNS_API_KEY;
 
-
-  if (
-    !profile ||
-    !apiKey
-  ) {
+  if (!profile || !apiKey) {
 
     return {
       success: false,
@@ -420,88 +409,57 @@ async function blockAllDomains() {
     };
   }
 
-
   const results = [];
 
+  for (const domain of DOMAINS) {
 
-  for (
-    const domain of DOMAINS
-  ) {
+    try {
 
-    const url =
-      `https://api.nextdns.io/profiles/${profile}/denylist`;
+      const url =
+        `https://api.nextdns.io/profiles/${profile}/denylist`;
 
+      const res = await fetch(url, {
+        method: "POST",
 
-    const response =
-      await fetch(
-        url,
-        {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": apiKey
+        },
 
-          method: "POST",
+        body: JSON.stringify({
+          id: domain,
+          active: true
+        })
+      });
 
-          headers: {
+      results.push({
+        domain,
+        status: res.status,
+        success: res.ok
+      });
 
-            "Content-Type":
-              "application/json",
+    } catch (error) {
 
-            "X-Api-Key":
-              apiKey
-          },
-
-          body:
-            JSON.stringify({
-
-              id:
-                domain,
-
-              active:
-                true
-            })
-        }
-      );
-
-
-    results.push({
-
-      domain,
-
-      status:
-        response.status,
-
-      success:
-        response.ok
-
-    });
+      results.push({
+        domain,
+        success: false,
+        error: error.message
+      });
+    }
   }
 
-
-  const success =
-    results.every(
-      item => item.success
-    );
-
-
   return {
-
-    success,
-
+    success: results.every(
+      item => item.success
+    ),
     results
-
   };
 }
 
 
-// ========================================================
-// RESTORE ALL DOMAINS
-// ========================================================
-//
-// FIRST VERSION:
-//
-// Set domains inactive.
-//
-// Later we'll make this smarter and preserve each
-// domain's original state.
-//
+/* =====================================================
+   NEXTDNS — RESTORE
+===================================================== */
 
 async function restoreAllDomains() {
 
@@ -511,11 +469,7 @@ async function restoreAllDomains() {
   const apiKey =
     process.env.NEXTDNS_API_KEY;
 
-
-  if (
-    !profile ||
-    !apiKey
-  ) {
+  if (!profile || !apiKey) {
 
     return {
       success: false,
@@ -523,69 +477,49 @@ async function restoreAllDomains() {
     };
   }
 
-
   const results = [];
 
+  for (const domain of DOMAINS) {
 
-  for (
-    const domain of DOMAINS
-  ) {
+    try {
 
-    const url =
-      `https://api.nextdns.io/profiles/${profile}/denylist/${domain}`;
+      const url =
+        `https://api.nextdns.io/profiles/${profile}/denylist/${domain}`;
 
+      const res = await fetch(url, {
 
-    const response =
-      await fetch(
-        url,
-        {
+        method: "PATCH",
 
-          method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": apiKey
+        },
 
-          headers: {
+        body: JSON.stringify({
+          active: false
+        })
+      });
 
-            "Content-Type":
-              "application/json",
+      results.push({
+        domain,
+        status: res.status,
+        success: res.ok
+      });
 
-            "X-Api-Key":
-              apiKey
-          },
+    } catch (error) {
 
-          body:
-            JSON.stringify({
-
-              active:
-                false
-            })
-        }
-      );
-
-
-    results.push({
-
-      domain,
-
-      status:
-        response.status,
-
-      success:
-        response.ok
-
-    });
+      results.push({
+        domain,
+        success: false,
+        error: error.message
+      });
+    }
   }
 
-
-  const success =
-    results.every(
-      item => item.success
-    );
-
-
   return {
-
-    success,
-
+    success: results.every(
+      item => item.success
+    ),
     results
-
   };
 }
