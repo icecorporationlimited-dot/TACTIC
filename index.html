@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>TACTIC — Focus Control</title>
+
+  <link
+    rel="stylesheet"
+    href="style.css"
+  >
+</head>
+
+<body>
+
+  <!-- ==================================================
+       HEADER
+  =================================================== -->
+
+  <header class="header">
+
+    <div class="brand">
+      <span class="brand-mark">T</span>
+      <span>TACTIC</span>
+    </div>
+
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span id="connectionText">SYSTEM ONLINE</span>
+    </div>
+
+  </header>
+
+
+  <!-- ==================================================
+       MAIN
+  =================================================== -->
+
+  <main class="container">
+
+    <!-- HERO -->
+
+    <section class="hero">
+
+      <div class="eyebrow">
+        TACTILE FOCUS INTERLOCK
+      </div>
+
+      <h1>
+        FOCUS<br>
+        WITHOUT<br>
+        EXCUSES.
+      </h1>
+
+      <p>
+        Physical commitment. Digital control.
+      </p>
+
+    </section>
+
+
+    <!-- =================================================
+         DEVICE
+    ================================================== -->
+
+    <section class="panel">
+
+      <div class="panel-top">
+
+        <div>
+          <div class="label">
+            DEVICE
+          </div>
+
+          <div
+            class="device-name"
+            id="deviceName"
+          >
+            TACTIC-001
+          </div>
+        </div>
+
+        <div class="device-state">
+          <span
+            class="state-dot"
+            id="deviceDot"
+          ></span>
+
+          <span id="deviceState">
+            READY
+          </span>
+        </div>
+
+      </div>
+
+
+      <div class="device-meta">
+
+        <div>
+          <span>STATUS</span>
+          <strong id="deviceStatus">
+            CONNECTED
+          </strong>
+        </div>
+
+        <div>
+          <span>MODE</span>
+          <strong id="modeText">
+            IDLE
+          </strong>
+        </div>
+
+        <div>
+          <span>SESSION</span>
+          <strong id="sessionText">
+            NONE
+          </strong>
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =================================================
+         FOCUS TIMER
+    ================================================== -->
+
+    <section
+      class="focus-panel"
+      id="focusPanel"
+    >
+
+      <div class="label">
+        FOCUS SESSION
+      </div>
+
+      <div
+        class="timer"
+        id="timer"
+      >
+        45:00
+      </div>
+
+      <div
+        class="timer-status"
+        id="timerStatus"
+      >
+        READY TO START
+      </div>
+
+    </section>
+
+
+    <!-- =================================================
+         BLOCK LIST
+    ================================================== -->
+
+    <section class="panel">
+
+      <div class="section-header">
+
+        <div>
+          <div class="label">
+            DIGITAL INTERLOCK
+          </div>
+
+          <h2>
+            BLOCKED SERVICES
+          </h2>
+        </div>
+
+        <div class="blocked-count">
+          <span id="blockedCount">3</span>
+          ACTIVE
+        </div>
+
+      </div>
+
+
+      <div class="service-list">
+
+        <!-- Instagram -->
+
+        <div class="service">
+
+          <div class="service-left">
+
+            <div class="service-icon instagram">
+              IG
+            </div>
+
+            <div>
+              <strong>
+                Instagram
+              </strong>
+
+              <small>
+                instagram.com
+              </small>
+            </div>
+
+          </div>
+
+          <div class="service-state">
+            BLOCKED
+          </div>
+
+        </div>
+
+
+        <!-- Snapchat -->
+
+        <div class="service">
+
+          <div class="service-left">
+
+            <div class="service-icon snapchat">
+              SC
+            </div>
+
+            <div>
+              <strong>
+                Snapchat
+              </strong>
+
+              <small>
+                snapchat.com
+              </small>
+            </div>
+
+          </div>
+
+          <div class="service-state">
+            BLOCKED
+          </div>
+
+        </div>
+
+
+        <!-- YouTube -->
+
+        <div class="service">
+
+          <div class="service-left">
+
+            <div class="service-icon youtube">
+              YT
+            </div>
+
+            <div>
+              <strong>
+                YouTube
+              </strong>
+
+              <small>
+                youtube.com
+              </small>
+
+            </div>
+
+          </div>
+
+          <div class="service-state">
+            BLOCKED
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =================================================
+         SESSION CONTROL
+    ================================================== -->
+
+    <section class="control-panel">
+
+      <div class="control-info">
+
+        <div class="label">
+          HARDWARE INTERLOCK
+        </div>
+
+        <h2>
+          ARM DEVICE
+        </h2>
+
+        <p>
+          Turn the physical key ON, then press
+          FIRE on the TACTIC device.
+        </p>
+
+      </div>
+
+
+      <div class="key-indicator">
+
+        <div class="key-ring">
+
+          <div class="key-hole"></div>
+
+        </div>
+
+        <span>
+          PHYSICAL KEY
+        </span>
+
+      </div>
+
+    </section>
+
+
+    <!-- =================================================
+         STATUS LOG
+    ================================================== -->
+
+    <section class="panel">
+
+      <div class="label">
+        SYSTEM LOG
+      </div>
+
+      <div
+        class="log"
+        id="systemLog"
+      >
+
+        <div>
+          <span>--:--:--</span>
+          <strong>
+            TACTIC INITIALIZED
+          </strong>
+        </div>
+
+        <div>
+          <span>--:--:--</span>
+          <strong>
+            WAITING FOR HARDWARE
+          </strong>
+        </div>
+
+      </div>
+
+    </section>
+
+
+  </main>
+
+
+  <!-- ==================================================
+       FOOTER
+  =================================================== -->
+
+  <footer>
+
+    <span>
+      TACTIC // FOCUS CONTROL
+    </span>
+
+    <span>
+      v0.5
+    </span>
+
+  </footer>
+
+
+  <script src="app.js"></script>
+
+</body>
+</html>
