@@ -3,467 +3,248 @@ import crypto from "crypto";
 
 let mongoClient;
 
-/* =====================================================
-   MONGODB
-===================================================== */
-
 async function getDB() {
-
   if (!mongoClient) {
-
-    const uri =
-      process.env.MONGODB_URI;
-
-    if (!uri) {
-      throw new Error(
-        "MONGODB_URI is missing"
-      );
-    }
-
-    mongoClient =
-      new MongoClient(uri);
-
+    mongoClient = new MongoClient(process.env.MONGODB_URI);
     await mongoClient.connect();
   }
 
   return mongoClient.db("tactic");
 }
 
-
-/* =====================================================
-   RESPONSE
-===================================================== */
-
-function response(
-  data,
-  status = 200
-) {
-
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-
-      headers: {
-        "Content-Type":
-          "application/json",
-
-        "Access-Control-Allow-Origin":
-          "*",
-
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization",
-
-        "Access-Control-Allow-Methods":
-          "POST, OPTIONS"
-      }
-    }
+function generateDeviceToken() {
+  return (
+    "TACTIC-" +
+    crypto.randomBytes(32).toString("hex")
   );
 }
 
-
-/* =====================================================
-   HASH TOKEN
-===================================================== */
-
-function hashToken(token) {
-
+function hashToken(value) {
   return crypto
     .createHash("sha256")
-    .update(token)
+    .update(value)
     .digest("hex");
 }
 
+function generateActivationCode() {
 
-/* =====================================================
-   GENERATE SECURE TOKEN
-===================================================== */
+  const chars =
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-function generateToken() {
+  function part(length) {
 
-  const random =
-    crypto.randomBytes(32)
-      .toString("hex");
+    let output = "";
 
-  return `TACTIC-${random}`;
+    for (let i = 0; i < length; i++) {
+
+      output +=
+        chars[
+          crypto.randomInt(0, chars.length)
+        ];
+
+    }
+
+    return output;
+  }
+
+  return `TACTIC-${part(4)}-${part(4)}`;
 }
 
-
-/* =====================================================
-   GENERATE DEVICE ID
-===================================================== */
-
-async function generateDeviceId(
-  devices
-) {
-
-  const latest =
-    await devices
-      .find({
-        deviceId: {
-          $regex:
-            /^TAC-\d{6}$/
-        }
-      })
-      .sort({
-        deviceId: -1
-      })
-      .limit(1)
-      .next();
-
-  let number = 1;
-
-  if (latest?.deviceId) {
-
-    const match =
-      latest.deviceId.match(
-        /^TAC-(\d{6})$/
-      );
-
-    if (match) {
-
-      number =
-        parseInt(
-          match[1],
-          10
-        ) + 1;
-    }
-  }
-
-  return `TAC-${String(number)
-    .padStart(6, "0")}`;
-}
-
-
-/* =====================================================
-   MAIN HANDLER
-===================================================== */
-
-export default async function handler(
-  req
-) {
-
-  /* ===================================================
-     OPTIONS
-  =================================================== */
-
-  if (
-    req.method === "OPTIONS"
-  ) {
-
-    return response(
-      {},
-      204
-    );
-  }
-
-
-  /* ===================================================
-     ONLY POST
-  =================================================== */
-
-  if (
-    req.method !== "POST"
-  ) {
-
-    return response(
-      {
-        success: false,
-        error:
-          "METHOD_NOT_ALLOWED"
-      },
-      405
-    );
-  }
-
-
-  /* ===================================================
-     ADMIN AUTHENTICATION
-  =================================================== */
-
-  const auth =
-    req.headers.get(
-      "Authorization"
-    );
-
-  if (
-    !auth ||
-    !auth.startsWith(
-      "Bearer "
-    )
-  ) {
-
-    return response(
-      {
-        success: false,
-        error:
-          "ADMIN_UNAUTHORIZED"
-      },
-      401
-    );
-  }
-
-
-  const suppliedSecret =
-    auth
-      .slice(7)
-      .trim();
-
-  const adminSecret =
-    process.env
-      .TACTIC_ADMIN_SECRET;
-
-
-  if (
-    !adminSecret ||
-    !suppliedSecret
-  ) {
-
-    return response(
-      {
-        success: false,
-        error:
-          "ADMIN_CONFIG_MISSING"
-      },
-      500
-    );
-  }
-
-
-  /* ===================================================
-     CONSTANT-TIME SECRET CHECK
-  =================================================== */
-
-  const suppliedBuffer =
-    Buffer.from(
-      suppliedSecret
-    );
-
-  const adminBuffer =
-    Buffer.from(
-      adminSecret
-    );
-
-  const validLength =
-    suppliedBuffer.length ===
-    adminBuffer.length;
-
-  let valid = false;
-
-  if (validLength) {
-
-    valid =
-      crypto.timingSafeEqual(
-        suppliedBuffer,
-        adminBuffer
-      );
-  }
-
-
-  if (!valid) {
-
-    return response(
-      {
-        success: false,
-        error:
-          "ADMIN_UNAUTHORIZED"
-      },
-      401
-    );
-  }
-
-
-  /* ===================================================
-     DATABASE
-  =================================================== */
-
-  let db;
-
-  try {
-
-    db =
-      await getDB();
-
-  } catch (error) {
-
-    console.error(
-      "MongoDB connection error:",
-      error
-    );
-
-    return response(
-      {
-        success: false,
-
-        error:
-          "DATABASE_CONNECTION_FAILED"
-      },
-      500
-    );
-  }
-
-
-  const devices =
-    db.collection(
-      "devices"
-    );
-
-
-  /* ===================================================
-     GENERATE DEVICE
-  =================================================== */
-
-  let deviceId;
-
-  let rawToken;
-
-  let tokenHash;
-
-  let attempts = 0;
-
-
-  while (attempts < 5) {
-
-    attempts++;
-
-    deviceId =
-      await generateDeviceId(
-        devices
-      );
-
-    rawToken =
-      generateToken();
-
-    tokenHash =
-      hashToken(
-        rawToken
-      );
-
-
-    const existing =
-      await devices.findOne({
-
-        $or: [
-
-          {
-            deviceId
-          },
-
-          {
-            tokenHash
-          }
-
-        ]
-
-      });
-
-
-    if (!existing) {
-      break;
-    }
-
-
-    if (attempts >= 5) {
-
-      return response(
-        {
-          success: false,
-
-          error:
-            "DEVICE_GENERATION_FAILED"
-        },
-        500
-      );
-    }
-  }
-
-
-  /* ===================================================
-     CREATE DEVICE
-  =================================================== */
-
-  const now =
-    new Date();
-
-
-  const device = {
-
-    deviceId,
-
-    tokenHash,
-
-    status:
-      "active",
-
-    userId:
-      null,
-
-    createdAt:
-      now,
-
-    updatedAt:
-      now
-
+export default async (req) => {
+
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
   };
 
+  if (req.method === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers
+    };
+  }
+
+  if (req.method !== "POST") {
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({
+        success: false,
+        message: "METHOD_NOT_ALLOWED"
+      })
+    };
+  }
 
   try {
 
-    await devices.insertOne(
-      device
-    );
+    /* ================================================
+       ADMIN AUTH
+    ================================================ */
 
-  } catch (error) {
+    const authHeader =
+      req.headers.authorization ||
+      req.headers.Authorization;
 
-    console.error(
-      "Device creation error:",
-      error
-    );
+    const expected =
+      `Bearer ${process.env.TACTIC_ADMIN_SECRET}`;
 
-    return response(
-      {
-        success: false,
+    if (
+      !authHeader ||
+      authHeader !== expected
+    ) {
 
-        error:
-          "DEVICE_CREATION_FAILED"
-      },
-      500
-    );
-  }
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          message: "UNAUTHORIZED"
+        })
+      };
+
+    }
 
 
-  /* ===================================================
-     RESPONSE
-     
-     RAW TOKEN IS RETURNED ONLY NOW.
-     It is NOT stored in MongoDB.
-  =================================================== */
+    /* ================================================
+       DATABASE
+    ================================================ */
 
-  return response({
+    const db = await getDB();
 
-    success: true,
+    const devices =
+      db.collection("devices");
 
-    message:
-      "TACTIC DEVICE CREATED",
 
-    device: {
+    /* ================================================
+       NEXT DEVICE ID
+    ================================================ */
+
+    const lastDevice =
+      await devices
+        .find({})
+        .sort({ deviceId: -1 })
+        .limit(1)
+        .toArray();
+
+    let nextNumber = 1;
+
+    if (lastDevice.length) {
+
+      const match =
+        String(lastDevice[0].deviceId)
+          .match(/TAC-(\d+)/);
+
+      if (match) {
+        nextNumber =
+          Number(match[1]) + 1;
+      }
+
+    }
+
+    const deviceId =
+      `TAC-${String(nextNumber).padStart(6, "0")}`;
+
+
+    /* ================================================
+       GENERATE CREDENTIALS
+    ================================================ */
+
+    const deviceToken =
+      generateDeviceToken();
+
+    const tokenHash =
+      hashToken(deviceToken);
+
+    let activationCode;
+
+    while (true) {
+
+      activationCode =
+        generateActivationCode();
+
+      const existing =
+        await devices.findOne({
+          activationCode
+        });
+
+      if (!existing) break;
+
+    }
+
+
+    /* ================================================
+       CREATE DEVICE
+    ================================================ */
+
+    await devices.insertOne({
 
       deviceId,
 
-      status:
-        "active"
+      tokenHash,
 
-    },
+      activationCode,
 
-    credentials: {
+      userId: null,
 
-      token:
-        rawToken
+      status: "active",
 
-    },
+      createdAt: new Date(),
 
-    warning:
-      "SAVE THIS TOKEN. IT WILL NOT BE SHOWN AGAIN."
+      updatedAt: new Date()
 
-  });
-}
+    });
+
+
+    /* ================================================
+       RETURN ONCE
+    ================================================ */
+
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify({
+
+        success: true,
+
+        message: "DEVICE_PROVISIONED",
+
+        device: {
+          deviceId,
+
+          activationCode,
+
+          /*
+            IMPORTANT:
+            deviceToken is shown only during
+            provisioning and should be stored
+            securely for ESP32 firmware setup.
+          */
+
+          deviceToken
+
+        }
+
+      })
+    };
+
+  } catch (error) {
+
+    console.error(
+      "PROVISION DEVICE ERROR:",
+      error
+    );
+
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({
+        success: false,
+        message: "SERVER_ERROR"
+      })
+    };
+
+  }
+
+};

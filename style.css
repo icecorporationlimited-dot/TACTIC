@@ -1137,4 +1137,43 @@ footer {
   margin-top: 10px;
 }
 
+  /* =====================================================
+   DEVICE ACTIVATION
+===================================================== */
+
+.activation-box {
+  margin: 0 28px 28px;
+  padding: 25px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.activation-box h3 {
+  margin-top: 9px;
+  font-size: 20px;
+  letter-spacing: -.04em;
+}
+
+.activation-box p {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 500px;
+}
+
+.activation-box input {
+  margin-top: 18px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 650px) {
+
+  .activation-box {
+    margin: 0 20px 20px;
+    padding: 20px;
+  }
+
+}
+
 }

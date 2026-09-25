@@ -71,6 +71,17 @@ const youtubeState = document.getElementById("youtubeState");
 
 const systemLog = document.getElementById("systemLog");
 
+const activationCode =
+  document.getElementById("activationCode");
+
+const activateDevice =
+  document.getElementById("activateDevice");
+
+const activationMessage =
+  document.getElementById("activationMessage");
+
+const activationBox =
+  document.getElementById("activationBox");
 
 /* =====================================================
    AUTH MODE
@@ -368,15 +379,23 @@ async function loadDevices() {
 
     if (!devices.length) {
 
-      deviceListMessage.textContent =
-        "NO TACTIC DEVICE LINKED TO THIS ACCOUNT.";
+  deviceListMessage.textContent =
+    "NO TACTIC DEVICE LINKED TO THIS ACCOUNT.";
 
-      selectedDevice = null;
+  selectedDevice = null;
 
-      localStorage.removeItem("tactic_device");
+  localStorage.removeItem("tactic_device");
 
-      return;
-    }
+  if (activationBox) {
+    activationBox.style.display = "block";
+  }
+
+  return;
+}
+
+if (activationBox) {
+  activationBox.style.display = "block";
+}
 
     deviceListMessage.textContent =
       `${devices.length} DEVICE(S) AVAILABLE`;
@@ -430,6 +449,104 @@ async function loadDevices() {
 
 }
 
+/* =====================================================
+   ACTIVATE DEVICE
+===================================================== */
+
+activateDevice?.addEventListener(
+  "click",
+  async () => {
+
+    const code =
+      activationCode.value
+        .trim()
+        .toUpperCase();
+
+    if (!code) {
+
+      activationMessage.textContent =
+        "ENTER YOUR ACTIVATION CODE";
+
+      return;
+    }
+
+    activateDevice.disabled = true;
+
+    activationMessage.textContent =
+      "ACTIVATING DEVICE...";
+
+    try {
+
+      const response =
+        await fetch(
+          "/.netlify/functions/activate-device",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type": "application/json",
+
+              "Authorization":
+                `Bearer ${sessionToken}`
+            },
+
+            body: JSON.stringify({
+              activationCode: code
+            })
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok || !data.success) {
+
+        throw new Error(
+          data.message ||
+          "ACTIVATION_FAILED"
+        );
+
+      }
+
+      const newDevice =
+        data.device;
+
+      selectedDevice =
+        newDevice.deviceId;
+
+      localStorage.setItem(
+        "tactic_device",
+        selectedDevice
+      );
+
+      activationCode.value = "";
+
+      activationMessage.textContent =
+        `DEVICE ACTIVATED — ${newDevice.deviceId}`;
+
+      addLog(
+        "DEVICE",
+        `DEVICE ${newDevice.deviceId} ACTIVATED`
+      );
+
+      await loadDevices();
+
+      deviceSelect.value =
+        selectedDevice;
+
+      await loadDeviceStatus();
+
+    } catch (error) {
+
+      activationMessage.textContent =
+        error.message;
+
+    }
+
+    activateDevice.disabled = false;
+
+  }
+);
 
 /* =====================================================
    DEVICE CHANGE
