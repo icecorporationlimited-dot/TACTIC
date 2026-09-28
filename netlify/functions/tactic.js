@@ -147,13 +147,28 @@ async function blockAllDomains(policy) {
     const url =
       `https://api.nextdns.io/profiles/${profileId}/denylist`;
 
-    await nextDNSRequest(url, {
-      method: "POST",
-      body: JSON.stringify({
-        domain,
-        active: true
-      })
-    });
+    try {
+
+      await nextDNSRequest(url, {
+        method: "POST",
+        body: JSON.stringify({
+          domain,
+          active: true
+        })
+      });
+
+    } catch (err) {
+
+      /*
+        Domain may already be on the denylist
+        (e.g. left over from a previous session).
+        Don't let that fail the whole focus session.
+      */
+
+      console.error(
+        `blockAllDomains: failed for ${domain}: ${err.message}`
+      );
+    }
   }
 }
 
@@ -174,12 +189,27 @@ async function restoreAllDomains(policy) {
     const url =
       `https://api.nextdns.io/profiles/${profileId}/denylist/${domain}`;
 
-    await nextDNSRequest(url, {
-      method: "PATCH",
-      body: JSON.stringify({
-        active: false
-      })
-    });
+    try {
+
+      await nextDNSRequest(url, {
+        method: "PATCH",
+        body: JSON.stringify({
+          active: false
+        })
+      });
+
+    } catch (err) {
+
+      /*
+        Domain may already be off the denylist,
+        or may never have been added. Don't let
+        that fail the whole "complete" request.
+      */
+
+      console.error(
+        `restoreAllDomains: failed for ${domain}: ${err.message}`
+      );
+    }
   }
 }
 
