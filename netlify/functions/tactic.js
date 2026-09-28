@@ -129,6 +129,11 @@ async function nextDNSRequest(url, options = {}) {
    BLOCK DOMAINS
 ===================================================== */
 
+function policyKeyForDomain(domain) {
+  // "instagram.com" -> "instagram"
+  return domain.split(".")[0];
+}
+
 async function blockAllDomains(policy) {
   const profileId = process.env.NEXTDNS_PROFILE_ID;
 
@@ -137,7 +142,7 @@ async function blockAllDomains(policy) {
   }
 
   for (const domain of DOMAINS) {
-    if (!policy[domain]) continue;
+    if (!policy[policyKeyForDomain(domain)]) continue;
 
     const url =
       `https://api.nextdns.io/profiles/${profileId}/denylist`;
@@ -164,7 +169,7 @@ async function restoreAllDomains(policy) {
   }
 
   for (const domain of DOMAINS) {
-    if (!policy[domain]) continue;
+    if (!policy[policyKeyForDomain(domain)]) continue;
 
     const url =
       `https://api.nextdns.io/profiles/${profileId}/denylist/${domain}`;
