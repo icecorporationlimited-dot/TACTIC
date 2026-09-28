@@ -81,6 +81,12 @@ const logoutButton =
 const startFocus =
   document.getElementById("startFocus");
 
+const durationInput =
+  document.getElementById("durationInput");
+
+const setDuration =
+  document.getElementById("setDuration");
+
 const timer =
   document.getElementById("timer");
 
@@ -845,6 +851,10 @@ function updateDeviceUI(data) {
 
   }
 
+  if (setDuration) {
+    setDuration.disabled = false;
+  }
+
   if (deviceState) {
 
     deviceState.textContent =
@@ -926,6 +936,19 @@ function updateDeviceUI(data) {
   } else {
 
     stopTimer();
+
+    if (data.focusMinutes) {
+
+      if (durationInput) {
+        durationInput.value =
+          data.focusMinutes;
+      }
+
+      if (timer) {
+        timer.textContent =
+          `${String(data.focusMinutes).padStart(2, "0")}:00`;
+      }
+    }
 
     if (sessionText) {
 
@@ -1052,7 +1075,9 @@ startFocus?.addEventListener(
           {
             action: "start",
             deviceId:
-              selectedDevice
+              selectedDevice,
+            durationMinutes:
+              Number(durationInput?.value || 45)
           }
         );
 
@@ -1448,3 +1473,62 @@ setInterval(
 ===================================================== */
 
 init();
+
+/* =====================================================
+   SET FOCUS DURATION
+===================================================== */
+
+setDuration?.addEventListener(
+  "click",
+  async () => {
+
+    if (!selectedDevice) {
+      return;
+    }
+
+    const minutes =
+      Number(durationInput.value);
+
+    if (
+      !Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > 240
+    ) {
+
+      addLog(
+        "ERROR",
+        "DURATION MUST BE 1-240 MINUTES"
+      );
+
+      return;
+    }
+
+    try {
+
+      await apiRequest(
+        API_URL,
+        "POST",
+        {
+          action: "setDuration",
+          deviceId: selectedDevice,
+          durationMinutes: minutes
+        }
+      );
+
+      addLog(
+        "FOCUS",
+        `DURATION SET TO ${minutes} MIN`
+      );
+
+      await loadDeviceStatus();
+
+    } catch (error) {
+
+      addLog(
+        "ERROR",
+        error.message
+      );
+
+    }
+  }
+);

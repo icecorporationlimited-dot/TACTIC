@@ -1177,3 +1177,36 @@ footer {
 }
 
 }
+
+/* FOCUS DURATION */
+
+.duration-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+
+.duration-row label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+.duration-row input {
+  width: 80px;
+  padding: 8px;
+  text-align: center;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+}
+
+.duration-row .main-button {
+  width: auto;
+  padding: 8px 16px;
+}

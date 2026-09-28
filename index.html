@@ -167,7 +167,7 @@
     type="text"
     placeholder="TACTIC-XXXX-XXXX"
     autocomplete="off"
-    maxlength="18"
+    maxlength="15"
   >
 
   <button
@@ -326,6 +326,33 @@
         id="timerStatus"
       >
         SELECT A DEVICE
+      </div>
+
+      <div class="duration-row">
+
+        <label for="durationInput">
+          DURATION (MIN)
+        </label>
+
+        <input
+          id="durationInput"
+          type="number"
+          min="1"
+          max="240"
+          step="1"
+          value="45"
+          inputmode="numeric"
+        >
+
+        <button
+          id="setDuration"
+          class="main-button"
+          type="button"
+          disabled
+        >
+          SET
+        </button>
+
       </div>
 
       <button

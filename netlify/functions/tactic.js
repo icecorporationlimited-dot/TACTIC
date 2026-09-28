@@ -7,7 +7,41 @@ const DOMAINS = [
   "youtube.com"
 ];
 
-const FOCUS_DURATION = 45 * 60 * 1000;
+const DEFAULT_FOCUS_MINUTES = 45;
+const MIN_FOCUS_MINUTES = 1;
+const MAX_FOCUS_MINUTES = 240;
+
+function parseMinutes(value) {
+  const minutes = Number(value);
+
+  if (
+    !Number.isInteger(minutes) ||
+    minutes < MIN_FOCUS_MINUTES ||
+    minutes > MAX_FOCUS_MINUTES
+  ) {
+    return null;
+  }
+
+  return minutes;
+}
+
+function sessionView(activeSession) {
+  const expiresAt = new Date(activeSession.expiresAt);
+  const startedAt = new Date(activeSession.startedAt);
+
+  return {
+    startedAt: activeSession.startedAt,
+    expiresAt: activeSession.expiresAt,
+    expired: expiresAt <= new Date(),
+    remainingSeconds: Math.max(
+      0,
+      Math.ceil((expiresAt - Date.now()) / 1000)
+    ),
+    durationSeconds: Math.round(
+      (expiresAt - startedAt) / 1000
+    )
+  };
+}
 
 let mongoClient;
 
@@ -369,15 +403,8 @@ export async function handler(event) {
           authType: "device",
           deviceId: auth.deviceId,
           status: device.status,
-          session: activeSession
-            ? {
-                startedAt: activeSession.startedAt,
-                expiresAt: activeSession.expiresAt,
-                expired:
-                  new Date(activeSession.expiresAt) <=
-                  new Date()
-              }
-            : null,
+          session: activeSession ? sessionView(activeSession) : null,
+          focusMinutes: device.focusMinutes || DEFAULT_FOCUS_MINUTES,
           policy: {
             instagram: policy.instagram,
             snapchat: policy.snapchat,
@@ -445,15 +472,8 @@ export async function handler(event) {
           userId: auth.userId,
           deviceId,
           status: device.status,
-          session: activeSession
-            ? {
-                startedAt: activeSession.startedAt,
-                expiresAt: activeSession.expiresAt,
-                expired:
-                  new Date(activeSession.expiresAt) <=
-                  new Date()
-              }
-            : null,
+          session: activeSession ? sessionView(activeSession) : null,
+          focusMinutes: device.focusMinutes || DEFAULT_FOCUS_MINUTES,
           policy: {
             instagram: policy.instagram,
             snapchat: policy.snapchat,
@@ -556,7 +576,57 @@ export async function handler(event) {
          START FOCUS
       ================================================= */
 
+      if (action === "setDuration") {
+
+        const minutes =
+          parseMinutes(body.durationMinutes);
+
+        if (minutes === null) {
+          return response(400, {
+            error:
+              `durationMinutes must be a whole number ` +
+              `between ${MIN_FOCUS_MINUTES} and ${MAX_FOCUS_MINUTES}`
+          });
+        }
+
+        await devices.updateOne(
+          { deviceId },
+          {
+            $set: {
+              focusMinutes: minutes,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return response(200, {
+          success: true,
+          action: "setDuration",
+          deviceId,
+          focusMinutes: minutes
+        });
+      }
+
       if (action === "start") {
+
+        let minutes =
+          device.focusMinutes || DEFAULT_FOCUS_MINUTES;
+
+        if (body.durationMinutes !== undefined) {
+
+          minutes = parseMinutes(body.durationMinutes);
+
+          if (minutes === null) {
+            return response(400, {
+              error:
+                `durationMinutes must be a whole number ` +
+                `between ${MIN_FOCUS_MINUTES} and ${MAX_FOCUS_MINUTES}`
+            });
+          }
+        }
+
+        const focusDurationMs =
+          minutes * 60 * 1000;
 
         const existingSession =
           await sessions.findOne({
@@ -604,7 +674,7 @@ export async function handler(event) {
 
         const expiresAt = new Date(
           startedAt.getTime() +
-          FOCUS_DURATION
+          focusDurationMs
         );
 
         const newSession = {
@@ -626,6 +696,7 @@ export async function handler(event) {
           {
             $set: {
               status: "focus",
+              focusMinutes: minutes,
               updatedAt: new Date()
             }
           }
@@ -637,7 +708,10 @@ export async function handler(event) {
           deviceId,
           startedAt,
           expiresAt,
-          duration: FOCUS_DURATION
+          duration: focusDurationMs,
+          durationSeconds: minutes * 60,
+          focusMinutes: minutes,
+          session: sessionView(newSession)
         });
       }
 
